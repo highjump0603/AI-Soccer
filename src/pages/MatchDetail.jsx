@@ -250,7 +250,7 @@ export default function MatchDetail() {
             </div>
             <div>
               <div className="detail-card">
-                <div className="detail-block-title">배당률 비교 (1 / X / 2)</div>
+                <div className="detail-block-title">북메이커 배당률 (1 / X / 2)</div>
                 <table className="odds-table">
                   <thead>
                     <tr>
@@ -267,14 +267,6 @@ export default function MatchDetail() {
                       <td>{fmtOdds(match.odds.book.draw)}</td>
                       <td>{fmtOdds(match.odds.book.away)}</td>
                     </tr>
-                    {match.hasPrediction && (
-                      <tr className="ai-row">
-                        <td>AI 예측(환산)</td>
-                        <td>{fmtOdds(match.odds.ai.home)}</td>
-                        <td>{fmtOdds(match.odds.ai.draw)}</td>
-                        <td>{fmtOdds(match.odds.ai.away)}</td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>

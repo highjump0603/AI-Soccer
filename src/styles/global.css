@@ -80,7 +80,6 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
 .odds-table th:first-child, .odds-table td:first-child { text-align: left; }
 .odds-table td { text-align: right; padding: 8px 0; color: var(--fg-1); border-top: 1px solid var(--border-subtle); }
 .odds-table tr:first-child td { border-top: none; }
-.odds-table .ai-row td { color: var(--color-accent); }
 
 .h2h { display: flex; gap: 6px; }
 .h2hpill { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 12px; font-weight: 700; }
