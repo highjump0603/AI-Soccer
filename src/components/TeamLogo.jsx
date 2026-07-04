@@ -6,8 +6,8 @@ function initialsOf(name) {
   return name.slice(0, 2).toUpperCase();
 }
 
-export default function TeamLogo({ name, size = 52 }) {
-  const url = getTeamLogoUrl(name);
+export default function TeamLogo({ name, size = 52, remoteUrl }) {
+  const url = remoteUrl || getTeamLogoUrl(name);
   return (
     <div className="logo-slot" style={{ width: size, height: size }}>
       {url ? (

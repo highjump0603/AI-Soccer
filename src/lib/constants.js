@@ -1,4 +1,6 @@
-export const LEAGUES = ['전체', '프리미어리그', '라리가', '분데스리가', '세리에A', 'K리그1', '국가대표'];
+// Keep this in sync with supabase/functions/_shared/leagues.ts (TRACKED_LEAGUES) —
+// that's what the sync pipeline actually writes into fixtures.league.
+export const LEAGUES = ['전체', '프리미어리그', '라리가', '분데스리가', '세리에A', 'K리그1', '월드컵', '국가대표'];
 export const LEAGUE_OPTIONS = LEAGUES.filter((l) => l !== '전체');
 
 export function confidenceMeta(level) {

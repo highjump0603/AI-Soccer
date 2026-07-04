@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { listMatches, createMatch, updateMatch, deleteMatch } from './matches';
+import { listUpcomingFixtures } from './fixtures';
 import { isSupabaseConfigured } from './supabaseClient';
 
 const MatchesContext = createContext(null);
@@ -18,7 +18,7 @@ export function MatchesProvider({ children }) {
     setLoading(true);
     setError('');
     try {
-      const rows = await listMatches();
+      const rows = await listUpcomingFixtures();
       setMatches(rows);
     } catch (e) {
       setError(e.message || '경기 데이터를 불러오지 못했습니다.');
@@ -31,28 +31,7 @@ export function MatchesProvider({ children }) {
     refresh();
   }, [refresh]);
 
-  const addMatch = useCallback(async (match) => {
-    const created = await createMatch(match);
-    setMatches((prev) => [...prev, created]);
-    return created;
-  }, []);
-
-  const editMatch = useCallback(async (id, match) => {
-    const updated = await updateMatch(id, match);
-    setMatches((prev) => prev.map((m) => (m.id === id ? updated : m)));
-    return updated;
-  }, []);
-
-  const removeMatch = useCallback(async (id) => {
-    await deleteMatch(id);
-    setMatches((prev) => prev.filter((m) => m.id !== id));
-  }, []);
-
-  return (
-    <MatchesContext.Provider value={{ matches, loading, error, refresh, addMatch, editMatch, removeMatch }}>
-      {children}
-    </MatchesContext.Provider>
-  );
+  return <MatchesContext.Provider value={{ matches, loading, error, refresh }}>{children}</MatchesContext.Provider>;
 }
 
 export function useMatches() {
