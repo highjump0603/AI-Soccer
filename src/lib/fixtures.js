@@ -97,6 +97,21 @@ export async function fetchLineups(fixtureId) {
   return data;
 }
 
+// A team's own recent match results (used by the model as "form" — separate
+// from h2h, which is specifically meetings between the two clubs in this
+// fixture). Cached by the prediction pipeline, public-read like everything
+// else.
+export async function fetchRecentForm(teamId, limit = 5) {
+  const { data, error } = await supabase
+    .from('team_recent_results')
+    .select('opponent_name, venue, goals_for, goals_against, result, played_at')
+    .eq('team_id', teamId)
+    .order('played_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
 // Admin view includes everything, not just upcoming, so finished/cancelled
 // tracked fixtures don't just silently vanish from the management screen.
 export async function listAllFixturesForAdmin() {

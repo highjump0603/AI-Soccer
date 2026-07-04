@@ -6,7 +6,7 @@ import TeamLogo from '../components/TeamLogo';
 import ProbBar from '../components/ProbBar';
 import { useMatches } from '../lib/MatchesContext';
 import { confidenceMeta } from '../lib/constants';
-import { fetchQuickMatchInfo, fetchLineups } from '../lib/fixtures';
+import { fetchQuickMatchInfo, fetchLineups, fetchRecentForm } from '../lib/fixtures';
 
 const fmtOdds = (v) => (v == null ? '—' : v.toFixed(2));
 
@@ -42,6 +42,22 @@ export default function MatchDetail() {
           home: rows.filter((r) => r.team_id === match.home.id),
           away: rows.filter((r) => r.team_id === match.away.id),
         });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [match?.id, match?.home?.id, match?.away?.id]);
+
+  const [recentForm, setRecentForm] = useState(null);
+  useEffect(() => {
+    setRecentForm(null);
+    if (!match) return;
+    let cancelled = false;
+    Promise.all([fetchRecentForm(match.home.id), fetchRecentForm(match.away.id)])
+      .then(([home, away]) => {
+        if (cancelled) return;
+        setRecentForm({ home, away });
       })
       .catch(() => {});
     return () => {
@@ -134,6 +150,39 @@ export default function MatchDetail() {
                         {text}
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+              {recentForm && (recentForm.home.length > 0 || recentForm.away.length > 0) && (
+                <div className="detail-card">
+                  <div className="detail-block-title">팀별 최근 전적 (최신순)</div>
+                  <div className="detail-grid">
+                    <div>
+                      <div className="factor" style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>{match.home.name}</div>
+                      <div className="factor-list">
+                        {recentForm.home.map((r, i) => (
+                          <div className="factor" key={i}>
+                            <span className={`h2hpill ${r.result}`} style={{ width: 20, height: 20, fontSize: 10 }}>
+                              {r.result}
+                            </span>
+                            {r.venue === 'home' ? '홈' : '원정'} {r.goals_for}–{r.goals_against} vs {r.opponent_name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="factor" style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>{match.away.name}</div>
+                      <div className="factor-list">
+                        {recentForm.away.map((r, i) => (
+                          <div className="factor" key={i}>
+                            <span className={`h2hpill ${r.result}`} style={{ width: 20, height: 20, fontSize: 10 }}>
+                              {r.result}
+                            </span>
+                            {r.venue === 'home' ? '홈' : '원정'} {r.goals_for}–{r.goals_against} vs {r.opponent_name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
