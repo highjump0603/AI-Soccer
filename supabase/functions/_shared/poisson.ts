@@ -66,27 +66,57 @@ export function summarizeMatrix(matrix: number[][]) {
   let probHome = 0;
   let probDraw = 0;
   let probAway = 0;
-  let bestP = -1;
-  let bestScore = { home: 0, away: 0 };
+  let bestHomeP = -1;
+  let bestHomeScore = { home: 1, away: 0 };
+  let bestDrawP = -1;
+  let bestDrawScore = { home: 0, away: 0 };
+  let bestAwayP = -1;
+  let bestAwayScore = { home: 0, away: 1 };
 
   for (let h = 0; h < matrix.length; h++) {
     for (let a = 0; a < matrix[h].length; a++) {
       const p = matrix[h][a];
-      if (h > a) probHome += p;
-      else if (h === a) probDraw += p;
-      else probAway += p;
-      if (p > bestP) {
-        bestP = p;
-        bestScore = { home: h, away: a };
+      if (h > a) {
+        probHome += p;
+        if (p > bestHomeP) {
+          bestHomeP = p;
+          bestHomeScore = { home: h, away: a };
+        }
+      } else if (h === a) {
+        probDraw += p;
+        if (p > bestDrawP) {
+          bestDrawP = p;
+          bestDrawScore = { home: h, away: a };
+        }
+      } else {
+        probAway += p;
+        if (p > bestAwayP) {
+          bestAwayP = p;
+          bestAwayScore = { home: h, away: a };
+        }
       }
     }
   }
 
   const total = probHome + probDraw + probAway;
+  const probs = { home: (probHome / total) * 100, draw: (probDraw / total) * 100, away: (probAway / total) * 100 };
+
+  // Pick the most likely single scoreline within whichever outcome (win/draw/
+  // loss) has the highest aggregate probability, rather than the single
+  // highest-probability cell in the whole matrix. The latter tends to land
+  // on a low, symmetric score like 1-1 even when one side's win probability
+  // is clearly highest, because winning scorelines (2-1, 3-1, 2-0, ...) split
+  // probability mass across more cells than the draw column does - so the
+  // headline score and the win/draw/loss split could contradict each other.
+  let bestScore: { home: number; away: number };
+  if (probs.home >= probs.draw && probs.home >= probs.away) bestScore = bestHomeScore;
+  else if (probs.draw >= probs.away) bestScore = bestDrawScore;
+  else bestScore = bestAwayScore;
+
   return {
-    probHome: (probHome / total) * 100,
-    probDraw: (probDraw / total) * 100,
-    probAway: (probAway / total) * 100,
+    probHome: probs.home,
+    probDraw: probs.draw,
+    probAway: probs.away,
     scoreHome: bestScore.home,
     scoreAway: bestScore.away,
   };
