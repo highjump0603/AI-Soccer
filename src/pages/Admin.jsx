@@ -39,8 +39,11 @@ export default function Admin() {
     setNotice('');
     setError('');
     try {
-      await triggerSyncLeagues();
-      setNotice('추적 리그의 예정된 경기를 동기화했습니다.');
+      const result = await triggerSyncLeagues();
+      const breakdown = Object.entries(result?.synced ?? {})
+        .map(([league, value]) => `${league}: ${value}`)
+        .join(' / ');
+      setNotice(breakdown ? `동기화 결과 — ${breakdown}` : '동기화 응답이 비어있습니다.');
       await load();
     } catch (e) {
       setError(e.message || '동기화에 실패했습니다.');
