@@ -1,0 +1,13 @@
+project_id = "aynsrteiuomwowjgzbji"
+
+[functions.sync-leagues]
+verify_jwt = true
+
+[functions.predict-due]
+verify_jwt = true
+
+[functions.untrack-fixture]
+verify_jwt = true
+
+[functions.quick-match-info]
+verify_jwt = true
