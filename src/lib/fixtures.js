@@ -43,6 +43,7 @@ function rowToMatch(row) {
     playerNotes: p?.player_notes ?? [],
     gptSummary: p?.gpt_summary ?? '',
     quickInfoFetchedAt: row.quick_info_fetched_at ?? null,
+    estimatedLineupFetchedAt: row.estimated_lineup_fetched_at ?? null,
     odds: {
       book: {
         home: p?.odds_book_home ?? row.quick_odds_home ?? null,
@@ -56,7 +57,7 @@ function rowToMatch(row) {
 
 const FIXTURE_SELECT = `
   id, league, kickoff_at, status, venue, home_score_actual, away_score_actual,
-  home_formation, away_formation,
+  home_formation, away_formation, estimated_lineup_fetched_at,
   quick_h2h, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at,
   home_team:home_team_id(id, name, logo_url),
   away_team:away_team_id(id, name, logo_url),
@@ -145,6 +146,16 @@ export async function untrackFixture(fixtureId) {
 // something to show before the full prediction pipeline gets to it.
 export async function fetchQuickMatchInfo(fixtureId) {
   const { data, error } = await supabase.functions.invoke('quick-match-info', { body: { fixture_id: fixtureId } });
+  if (error) throw error;
+  return data;
+}
+
+// Builds a best-guess starting XI + formation from each team's recent
+// lineups when the club hasn't announced an official one yet. Writes
+// straight to the `lineups`/`fixtures` tables server-side — callers should
+// just re-run fetchLineups() afterward to pick up the new rows.
+export async function triggerEstimateLineup(fixtureId) {
+  const { data, error } = await supabase.functions.invoke('estimate-lineup', { body: { fixture_id: fixtureId } });
   if (error) throw error;
   return data;
 }

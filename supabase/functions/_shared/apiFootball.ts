@@ -57,25 +57,29 @@ function mostRecentFinished(fixtures: AfFixture[], count: number) {
     .slice(0, count);
 }
 
+// This project's specific free-plan key currently rejects season=2025/2026
+// outright ("Free plans do not have access to this season, try from 2022 to
+// 2024" - confirmed against the live API), even though it happily accepts a
+// plain date=/from+to lookup with no season at all (see getFixturesByDate).
+// So alongside the current/previous year (in case the plan's allowed range
+// moves forward later), always also try the newest season we know the plan
+// accepts. Whichever attempt(s) actually return rows win; mostRecentFinished
+// sorts by date after merging, so fresher data always takes priority over
+// this stale fallback once/if the plan opens up.
+const FREE_PLAN_FALLBACK_SEASON = 2024;
+
 // A team's most recent finished matches, across all competitions — the raw
 // material for "form". Free plans reject the `last` convenience param
 // ("Free plans do not have access to the Last parameter"), so instead pull
-// a wide date window and sort/slice client-side, same trick as
-// getFixturesByDate uses for fixture discovery. Passing `team` without
-// `league` also requires `season` ("The Season field is required."), and
-// since league season-year conventions differ (Aug-May vs. calendar-year),
-// query the current and previous year as separate season values and merge
-// - whichever one actually covers the team's competition will return rows,
-// the other comes back empty and is ignored.
+// the whole season and sort/slice client-side. Passing `team` without
+// `league` also requires `season` ("The Season field is required."). No
+// from/to window here deliberately — a season is already a small, cheap
+// result set on its own, and combining it with a "last 365 days" range would
+// exclude the FREE_PLAN_FALLBACK_SEASON entirely (that season's matches
+// happened well outside any recent window by definition).
 export async function getTeamRecentResults(teamId: number, count = 10) {
-  const to = new Date();
-  const from = new Date(to.getTime() - 365 * 86400000);
-  const seasons = [to.getFullYear(), to.getFullYear() - 1];
-  const perSeason = await Promise.all(
-    seasons.map((season) =>
-      afGet('/fixtures', { team: teamId, season, from: toDateParam(from), to: toDateParam(to) }).catch(() => [] as unknown[])
-    )
-  );
+  const seasons = [...new Set([new Date().getFullYear(), new Date().getFullYear() - 1, FREE_PLAN_FALLBACK_SEASON])];
+  const perSeason = await Promise.all(seasons.map((season) => afGet('/fixtures', { team: teamId, season }).catch(() => [] as unknown[])));
   return mostRecentFinished(perSeason.flat() as AfFixture[], count);
 }
 
@@ -105,6 +109,46 @@ export type AfLineup = {
 // Empty response before that; callers should treat [] as "not out yet".
 export async function getLineups(fixtureId: number) {
   return (await afGet('/fixtures/lineups', { fixture: fixtureId })) as AfLineup[];
+}
+
+// A team's actual starting lineup from each of its last few matches — the
+// raw material for estimating who's likely to start before the club's own
+// lineup is out. Best-effort: older fixtures don't always have lineup data
+// on the free plan, callers should treat a short/empty result as "not
+// enough signal" rather than an error.
+export async function getTeamLastLineups(teamApiId: number, count = 3) {
+  const recentFixtures = await getTeamRecentResults(teamApiId, count);
+  const lineupsPerFixture = await Promise.all(
+    recentFixtures.map((f) => getLineups(f.fixture.id).catch(() => [] as AfLineup[]))
+  );
+  return lineupsPerFixture
+    .map((ls) => ls.find((l) => l.team.id === teamApiId))
+    .filter((l): l is AfLineup => !!l);
+}
+
+type AfInjuryEntry = { player: { id: number }; fixture?: { date?: string } };
+
+// Players currently injured or suspended (API-Football's /injuries feed
+// covers both under one endpoint). Only counts entries tied to a fixture
+// within the last 3 weeks as still-relevant — the feed doesn't say when
+// someone recovers, so older entries are more likely stale than useful.
+// Note: unlike getTeamRecentResults, there's no stale-season fallback worth
+// adding here — this endpoint needs the *current* season specifically (an
+// old season's injuries are outside the 21-day relevance window anyway), so
+// on this plan's current 2022-2024 restriction it will simply come back
+// empty until that range moves forward. Safe default: nobody gets excluded.
+export async function getUnavailablePlayerIds(teamApiId: number) {
+  const seasons = [new Date().getFullYear(), new Date().getFullYear() - 1];
+  const perSeason = await Promise.all(
+    seasons.map((season) => afGet('/injuries', { team: teamApiId, season }).catch(() => [] as unknown[]))
+  );
+  const cutoff = Date.now() - 21 * 86400000;
+  const ids = new Set<number>();
+  for (const entry of perSeason.flat() as AfInjuryEntry[]) {
+    const fixtureDate = entry.fixture?.date ? new Date(entry.fixture.date).getTime() : 0;
+    if (fixtureDate >= cutoff && entry.player?.id) ids.add(entry.player.id);
+  }
+  return ids;
 }
 
 type AfOdds = {

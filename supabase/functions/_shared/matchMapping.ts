@@ -105,3 +105,102 @@ export function computeLineupOverlapRatio(currentLineups: AfLineup[], lastH2hLin
   if (totalStarters === 0) return null;
   return overlap / totalStarters;
 }
+
+type PosGroup = 'G' | 'D' | 'M' | 'F';
+
+function posGroup(pos?: string): PosGroup {
+  const p = (pos ?? '').toUpperCase();
+  if (p.startsWith('G')) return 'G';
+  if (p.startsWith('D')) return 'D';
+  if (p.startsWith('F')) return 'F';
+  return 'M';
+}
+
+export type EstimatedLineup = {
+  formation: string;
+  // One array per pitch row, GK first: rows[0] = keeper, rows[1] = defenders, etc.
+  rows: { group: PosGroup; id: number; name: string; number?: number }[][];
+};
+
+// Best guess at a team's starting XI + formation before the club announces
+// one: most-used player per position group across its last few actual
+// lineups, skipping anyone currently injured/suspended. No per-player
+// rating data involved — pure "who's been playing lately".
+export function estimateLineup(recentLineups: AfLineup[], unavailableIds: Set<number>): EstimatedLineup | null {
+  if (recentLineups.length === 0) return null;
+
+  const formationCounts = new Map<string, number>();
+  for (const l of recentLineups) {
+    if (!l.formation) continue;
+    formationCounts.set(l.formation, (formationCounts.get(l.formation) ?? 0) + 1);
+  }
+  const formation =
+    [...formationCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? recentLineups[0].formation ?? '4-4-2';
+
+  const segments = formation
+    .split('-')
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const dfCount = segments[0] ?? 4;
+  const fwCount = segments.length > 1 ? segments[segments.length - 1] : 2;
+  const mfCount = segments.length > 2 ? segments.slice(1, -1).reduce((a, b) => a + b, 0) : Math.max(0, 10 - dfCount - fwCount);
+
+  type Stat = { name: string; number?: number; group: PosGroup; count: number; lastSeen: number };
+  const stats = new Map<number, Stat>();
+  recentLineups.forEach((l, idx) => {
+    for (const s of l.startXI) {
+      if (unavailableIds.has(s.player.id)) continue;
+      const recency = recentLineups.length - idx;
+      const existing = stats.get(s.player.id);
+      if (existing) {
+        existing.count += 1;
+        existing.lastSeen = Math.max(existing.lastSeen, recency);
+      } else {
+        stats.set(s.player.id, { name: s.player.name, number: s.player.number, group: posGroup(s.player.pos), count: 1, lastSeen: recency });
+      }
+    }
+  });
+
+  const byGroup: Record<PosGroup, { id: number; name: string; number?: number; count: number; lastSeen: number }[]> = {
+    G: [],
+    D: [],
+    M: [],
+    F: [],
+  };
+  for (const [id, v] of stats.entries()) byGroup[v.group].push({ id, name: v.name, number: v.number, count: v.count, lastSeen: v.lastSeen });
+  for (const group of Object.keys(byGroup) as PosGroup[]) {
+    byGroup[group].sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen);
+  }
+
+  const wanted: { group: PosGroup; count: number }[] = [
+    { group: 'G', count: 1 },
+    { group: 'D', count: dfCount },
+    { group: 'M', count: mfCount },
+    { group: 'F', count: fwCount },
+  ];
+
+  const pickedIds = new Set<number>();
+  const rows: EstimatedLineup['rows'] = [];
+  for (const { group, count } of wanted) {
+    const picks = byGroup[group].filter((p) => !pickedIds.has(p.id)).slice(0, count);
+    for (const p of picks) pickedIds.add(p.id);
+    rows.push(picks.map((p) => ({ group, id: p.id, name: p.name, number: p.number })));
+  }
+
+  // Backfill short rows (e.g. only one known winger on record) from whoever
+  // else is left, regardless of group, so the XI doesn't come up short.
+  const leftover = [...stats.entries()]
+    .filter(([id]) => !pickedIds.has(id))
+    .map(([id, v]) => ({ id, name: v.name, number: v.number, count: v.count, lastSeen: v.lastSeen }))
+    .sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen);
+  for (let i = 0; i < rows.length; i++) {
+    while (rows[i].length < wanted[i].count && leftover.length > 0) {
+      const p = leftover.shift();
+      if (!p) break;
+      rows[i].push({ group: wanted[i].group, id: p.id, name: p.name, number: p.number });
+      pickedIds.add(p.id);
+    }
+  }
+
+  return { formation, rows };
+}
