@@ -14,7 +14,10 @@ export default function MatchCard({ match }) {
     <Card variant="default" interactive onClick={() => navigate(`/match/${match.id}`)} className="mcard">
       <div className="mcard-top">
         <Tag variant="filled">{match.league}</Tag>
-        <span className="mdate">{match.date}</span>
+        <span className="mdate">
+          {match.date}
+          {match.venue && ` · ${match.venue}`}
+        </span>
       </div>
       <div className="teams">
         <div className="team">
@@ -22,7 +25,13 @@ export default function MatchCard({ match }) {
           <span className="tname">{match.home.name}</span>
         </div>
         <div className="score">
-          {match.hasPrediction ? (
+          {match.actualScore ? (
+            <>
+              {match.actualScore.home}
+              <span className="dash">–</span>
+              {match.actualScore.away}
+            </>
+          ) : match.hasPrediction ? (
             <>
               {match.score.home}
               <span className="dash">–</span>
@@ -49,7 +58,7 @@ export default function MatchCard({ match }) {
         </>
       ) : (
         <div className="mcard-foot">
-          <Badge variant="default">예측 계산 중</Badge>
+          <Badge variant="default">{match.actualScore ? '경기 종료' : '예측 계산 중'}</Badge>
           <span className="expand-hint">상세 보기 →</span>
         </div>
       )}

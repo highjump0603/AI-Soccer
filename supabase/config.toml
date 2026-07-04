@@ -8,3 +8,6 @@ verify_jwt = true
 
 [functions.untrack-fixture]
 verify_jwt = true
+
+[functions.quick-match-info]
+verify_jwt = true

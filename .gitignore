@@ -29,3 +29,5 @@ dist-ssr
 supabase/.env
 supabase/.env.*
 *.secrets
+.vercel
+.env*

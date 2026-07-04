@@ -5,10 +5,11 @@ import { useMatches } from '../lib/MatchesContext';
 import { LEAGUES } from '../lib/constants';
 
 export default function Home() {
-  const { matches, loading, error } = useMatches();
+  const { matches, pastMatches, loading, error } = useMatches();
   const [activeLeague, setActiveLeague] = useState('전체');
 
   const filtered = activeLeague === '전체' ? matches : matches.filter((m) => m.league === activeLeague);
+  const filteredPast = activeLeague === '전체' ? pastMatches : pastMatches.filter((m) => m.league === activeLeague);
 
   return (
     <div className="wrap">
@@ -92,10 +93,30 @@ export default function Home() {
         )}
       </section>
 
-      <section className="section" id="about">
+      <section className="section" id="past">
         <div className="section-head">
           <div>
             <span className="section-num">02 —</span>
+            <h2 className="section-title">지난 경기 결과</h2>
+          </div>
+          <div className="section-desc">최근 종료된 경기의 결과입니다.</div>
+        </div>
+
+        {!loading && !error && filteredPast.length === 0 && <div className="state-msg">최근 종료된 경기가 없습니다.</div>}
+
+        {!loading && !error && filteredPast.length > 0 && (
+          <div className="grid">
+            {filteredPast.map((m) => (
+              <MatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="section" id="about">
+        <div className="section-head">
+          <div>
+            <span className="section-num">03 —</span>
             <h2 className="section-title">모델 소개</h2>
           </div>
         </div>
