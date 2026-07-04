@@ -106,6 +106,12 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
       const teamRowId = l.team.id === homeApiId ? fixture.home_team.id : fixture.away_team.id;
       await upsertPlayerAndLineup(supabase, fixture.id, teamRowId, l, 'confirmed').catch(() => {});
     }
+    const homeFormation = lineupsAf.find((l) => l.team.id === homeApiId)?.formation ?? null;
+    const awayFormation = lineupsAf.find((l) => l.team.id === awayApiId)?.formation ?? null;
+    await supabase
+      .from('fixtures')
+      .update({ home_formation: homeFormation, away_formation: awayFormation })
+      .eq('id', fixture.id);
   }
 
   let lineupOverlapRatio: number | null = null;

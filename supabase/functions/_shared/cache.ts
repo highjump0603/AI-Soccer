@@ -104,6 +104,10 @@ export async function upsertPlayerAndLineup(
       .single();
     if (playerErr) throw playerErr;
 
+    const [gridRowStr, gridColStr] = (entry.player.grid ?? '').split(':');
+    const gridRow = gridRowStr ? Number(gridRowStr) : null;
+    const gridCol = gridColStr ? Number(gridColStr) : null;
+
     await supabase.from('lineups').upsert(
       {
         fixture_id: fixtureRowId,
@@ -111,6 +115,9 @@ export async function upsertPlayerAndLineup(
         player_id: playerRow.id,
         is_starting: true,
         source,
+        shirt_number: entry.player.number ?? null,
+        grid_row: Number.isFinite(gridRow) ? gridRow : null,
+        grid_col: Number.isFinite(gridCol) ? gridCol : null,
         captured_at: new Date().toISOString(),
       },
       { onConflict: 'fixture_id,team_id,player_id' }

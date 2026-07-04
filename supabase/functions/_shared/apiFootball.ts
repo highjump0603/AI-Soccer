@@ -95,7 +95,9 @@ export async function getHeadToHead(teamAId: number, teamBId: number, count = 10
 export type AfLineup = {
   team: { id: number; name: string };
   formation?: string;
-  startXI: { player: { id: number; name: string; pos?: string } }[];
+  // `grid` is API-Football's "row:col" pitch position (e.g. "2:3"), row 1 =
+  // goalkeeper end increasing toward attack — null for substitutes.
+  startXI: { player: { id: number; name: string; number?: number; pos?: string; grid?: string | null } }[];
   substitutes?: { player: { id: number; name: string; pos?: string } }[];
 };
 

@@ -7,6 +7,7 @@ import ProbBar from '../components/ProbBar';
 import { useMatches } from '../lib/MatchesContext';
 import { confidenceMeta } from '../lib/constants';
 import { fetchQuickMatchInfo, fetchLineups, fetchRecentForm } from '../lib/fixtures';
+import FormationPitch from '../components/FormationPitch';
 
 const fmtOdds = (v) => (v == null ? '—' : v.toFixed(2));
 
@@ -17,6 +18,8 @@ export default function MatchDetail() {
 
   const match = matches.find((m) => String(m.id) === id) ?? pastMatches.find((m) => String(m.id) === id);
   const conf = match?.hasPrediction ? confidenceMeta(match.confidence) : null;
+  const [lineups, setLineups] = useState(null);
+  const hasGridLineups = lineups != null && [...lineups.home, ...lineups.away].some((l) => l.grid_row != null);
 
   useEffect(() => {
     // Already have quick info (fetched previously and cached on the fixture
@@ -30,7 +33,6 @@ export default function MatchDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id, match?.hasPrediction, match?.quickInfoFetchedAt, match?.actualScore]);
 
-  const [lineups, setLineups] = useState(null);
   useEffect(() => {
     setLineups(null);
     if (!match) return;
@@ -213,7 +215,7 @@ export default function MatchDetail() {
                   </div>
                 </div>
               )}
-              {lineups && (lineups.home.length > 0 || lineups.away.length > 0) && (
+              {lineups && !hasGridLineups && (lineups.home.length > 0 || lineups.away.length > 0) && (
                 <div className="detail-card">
                   <div className="detail-block-title">
                     선발 라인업
@@ -278,6 +280,26 @@ export default function MatchDetail() {
               </div>
             </div>
           </div>
+
+          {hasGridLineups && (
+            <div style={{ marginTop: 'var(--space-5)' }}>
+              <div className="detail-block-title">
+                선발 라인업{(lineups.home[0]?.source ?? lineups.away[0]?.source) === 'confirmed' ? ' (확정)' : ' (예상)'}
+              </div>
+              <FormationPitch
+                teamName={match.home.name}
+                teamLogoUrl={match.home.logoUrl}
+                formation={match.homeFormation}
+                players={lineups.home}
+              />
+              <FormationPitch
+                teamName={match.away.name}
+                teamLogoUrl={match.away.logoUrl}
+                formation={match.awayFormation}
+                players={lineups.away}
+              />
+            </div>
+          )}
         </>
       )}
     </div>

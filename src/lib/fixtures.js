@@ -31,6 +31,8 @@ function rowToMatch(row) {
       row.status === 'finished' && row.home_score_actual != null && row.away_score_actual != null
         ? { home: row.home_score_actual, away: row.away_score_actual }
         : null,
+    homeFormation: row.home_formation ?? null,
+    awayFormation: row.away_formation ?? null,
     hasPrediction: !!p,
     generatedAt: p?.generated_at ?? null,
     score: p ? { home: p.final_score_home, away: p.final_score_away } : null,
@@ -54,6 +56,7 @@ function rowToMatch(row) {
 
 const FIXTURE_SELECT = `
   id, league, kickoff_at, status, venue, home_score_actual, away_score_actual,
+  home_formation, away_formation,
   quick_h2h, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at,
   home_team:home_team_id(id, name, logo_url),
   away_team:away_team_id(id, name, logo_url),
@@ -90,7 +93,7 @@ export async function listRecentFinishedFixtures(limit = 20) {
 export async function fetchLineups(fixtureId) {
   const { data, error } = await supabase
     .from('lineups')
-    .select('team_id, source, player:player_id(name, position)')
+    .select('team_id, source, shirt_number, grid_row, grid_col, player:player_id(name, position, api_football_id)')
     .eq('fixture_id', fixtureId)
     .eq('is_starting', true);
   if (error) throw error;
