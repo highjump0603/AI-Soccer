@@ -96,6 +96,32 @@ export async function getHeadToHead(teamAId: number, teamBId: number, count = 10
   return mostRecentFinished(fixtures, count);
 }
 
+export type AfStanding = {
+  rank: number;
+  team: { id: number; name: string; logo?: string };
+  points: number;
+  form?: string;
+  all: { played: number; win: number; draw: number; lose: number; goals: { for: number; against: number } };
+};
+
+// League table for one competition. Same season restriction as
+// getTeamRecentResults (this plan only allows 2022-2024 right now), worked
+// around the same way — try the current/previous year, and fall back to the
+// newest season the plan does allow.
+export async function getStandings(leagueId: number): Promise<{ season: number; rows: AfStanding[] }> {
+  const seasons = [...new Set([new Date().getFullYear(), new Date().getFullYear() - 1, FREE_PLAN_FALLBACK_SEASON])];
+  for (const season of seasons) {
+    try {
+      const response = (await afGet('/standings', { league: leagueId, season })) as { league: { standings: AfStanding[][] } }[];
+      const rows = response[0]?.league?.standings?.flat() ?? [];
+      if (rows.length > 0) return { season, rows };
+    } catch {
+      // try the next season
+    }
+  }
+  return { season: seasons[0], rows: [] };
+}
+
 export type AfLineup = {
   team: { id: number; name: string };
   formation?: string;

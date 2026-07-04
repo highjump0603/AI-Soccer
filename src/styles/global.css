@@ -87,6 +87,21 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
 .h2hpill.D { background: var(--bg-elevated); color: var(--fg-3); }
 .h2hpill.L { background: var(--color-error-faint); color: var(--color-error); }
 
+.rank-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--fg-3); background: var(--bg-elevated); border-radius: var(--radius-full); padding: 2px 7px; margin-left: 8px; }
+
+.h2h-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--fg-2); }
+.h2h-date { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); width: 56px; flex-shrink: 0; }
+.h2h-league { font-size: 10px; color: var(--fg-3); background: var(--bg-elevated); border-radius: var(--radius-sm); padding: 2px 6px; flex-shrink: 0; }
+.h2h-teams { color: var(--fg-1); }
+
+.standings-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.standings-table th { text-align: center; color: var(--fg-3); font-weight: 500; padding: 4px 6px; font-size: 10px; letter-spacing: 0.03em; text-transform: uppercase; }
+.standings-table th:nth-child(2) { text-align: left; }
+.standings-table td { text-align: center; padding: 7px 6px; color: var(--fg-2); border-top: 1px solid var(--border-subtle); }
+.standings-table .standings-team { text-align: left; color: var(--fg-1); }
+.standings-table tr:first-child td { border-top: none; }
+.standings-table tr.standings-highlight td { color: var(--color-accent); font-weight: 700; }
+
 .admin-page { padding-top: var(--space-10); padding-bottom: var(--space-16); }
 .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
 .admin-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-3); }

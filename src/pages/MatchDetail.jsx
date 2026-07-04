@@ -6,7 +6,14 @@ import TeamLogo from '../components/TeamLogo';
 import ProbBar from '../components/ProbBar';
 import { useMatches } from '../lib/MatchesContext';
 import { confidenceMeta } from '../lib/constants';
-import { fetchQuickMatchInfo, fetchLineups, fetchRecentForm, triggerEstimateLineup } from '../lib/fixtures';
+import {
+  fetchQuickMatchInfo,
+  fetchLineups,
+  fetchRecentForm,
+  triggerEstimateLineup,
+  fetchStandings,
+  triggerFetchStandings,
+} from '../lib/fixtures';
 import FormationPitch from '../components/FormationPitch';
 
 const fmtOdds = (v) => (v == null ? '—' : v.toFixed(2));
@@ -28,7 +35,7 @@ export default function MatchDetail() {
     // will never get one — don't hit the Edge Function needlessly.
     if (!match || match.hasPrediction || match.quickInfoFetchedAt || match.actualScore) return;
     fetchQuickMatchInfo(match.id)
-      .then((info) => applyQuickInfo(match.id, { h2h: info.h2h, odds: info.odds }))
+      .then((info) => applyQuickInfo(match.id, { h2h: info.h2h, h2hDetail: info.h2hDetail, odds: info.odds }))
       .catch(() => {});
     // Only re-run when the match identity or prediction state changes, not on every match object update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +88,35 @@ export default function MatchDetail() {
       cancelled = true;
     };
   }, [match?.id, match?.home?.id, match?.away?.id]);
+
+  const [standings, setStandings] = useState(null);
+  useEffect(() => {
+    setStandings(null);
+    if (!match || !match.apiFootballLeagueId) return;
+    let cancelled = false;
+    const leagueId = match.apiFootballLeagueId;
+    fetchStandings(leagueId)
+      .then((rows) => {
+        if (cancelled) return rows;
+        if (rows.length > 0) setStandings(rows);
+        return rows;
+      })
+      .then((rows) => {
+        if (cancelled || (rows && rows.length > 0)) return;
+        return triggerFetchStandings(leagueId).then(() => (cancelled ? null : fetchStandings(leagueId)));
+      })
+      .then((rows) => {
+        if (cancelled || !rows) return;
+        setStandings(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [match?.apiFootballLeagueId]);
+
+  const homeRank = standings?.find((s) => s.team_api_id === match?.home?.apiFootballId)?.rank;
+  const awayRank = standings?.find((s) => s.team_api_id === match?.away?.apiFootballId)?.rank;
 
   return (
     <div className="wrap detail-page">
@@ -175,7 +211,10 @@ export default function MatchDetail() {
                   <div className="detail-block-title">팀별 최근 전적 (최신순)</div>
                   <div className="detail-grid">
                     <div>
-                      <div className="factor" style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>{match.home.name}</div>
+                      <div className="factor" style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>
+                        {match.home.name}
+                        {homeRank && <span className="rank-badge">{homeRank}위</span>}
+                      </div>
                       <div className="factor-list">
                         {recentForm.home.map((r, i) => (
                           <div className="factor" key={i}>
@@ -188,7 +227,10 @@ export default function MatchDetail() {
                       </div>
                     </div>
                     <div>
-                      <div className="factor" style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>{match.away.name}</div>
+                      <div className="factor" style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>
+                        {match.away.name}
+                        {awayRank && <span className="rank-badge">{awayRank}위</span>}
+                      </div>
                       <div className="factor-list">
                         {recentForm.away.map((r, i) => (
                           <div className="factor" key={i}>
@@ -204,8 +246,20 @@ export default function MatchDetail() {
                 </div>
               )}
               <div className="detail-card">
-                <div className="detail-block-title">최근 상대 전적 (홈팀 기준, 최신순)</div>
-                {match.h2h.length > 0 ? (
+                <div className="detail-block-title">맞대결 경기</div>
+                {match.h2hDetail.length > 0 ? (
+                  <div className="factor-list">
+                    {match.h2hDetail.map((m, i) => (
+                      <div className="h2h-row" key={i}>
+                        <span className="h2h-date">{m.date.slice(2, 10)}</span>
+                        <span className="h2h-league">{m.league}</span>
+                        <span className="h2h-teams">
+                          {m.homeTeam} {m.homeGoals} – {m.awayGoals} {m.awayTeam}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : match.h2h.length > 0 ? (
                   <div className="h2h">
                     {match.h2h.map((r, i) => (
                       <div className={`h2hpill ${r}`} key={i}>
@@ -285,6 +339,48 @@ export default function MatchDetail() {
                   </tbody>
                 </table>
               </div>
+              {standings && standings.length > 0 && (
+                <div className="detail-card">
+                  <div className="detail-block-title">리그 순위</div>
+                  <table className="standings-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>팀</th>
+                        <th>경기</th>
+                        <th>승</th>
+                        <th>무</th>
+                        <th>패</th>
+                        <th>득실</th>
+                        <th>승점</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {standings.map((s) => (
+                        <tr
+                          key={s.team_api_id}
+                          className={
+                            s.team_api_id === match.home.apiFootballId || s.team_api_id === match.away.apiFootballId
+                              ? 'standings-highlight'
+                              : ''
+                          }
+                        >
+                          <td>{s.rank}</td>
+                          <td className="standings-team">{s.team_name}</td>
+                          <td>{s.played}</td>
+                          <td>{s.win}</td>
+                          <td>{s.draw}</td>
+                          <td>{s.lose}</td>
+                          <td>
+                            {s.goals_for}:{s.goals_against}
+                          </td>
+                          <td>{s.points}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
 
