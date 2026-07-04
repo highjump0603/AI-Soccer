@@ -41,6 +41,33 @@ export function h2hResultLetters(h2hAf: AfFixture[], currentHomeApiId: number): 
   });
 }
 
+export type H2hDetailRow = {
+  date: string;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeGoals: number;
+  awayGoals: number;
+};
+
+// Full past-meeting rows (date/competition/score) for display, most recent
+// first — h2hResultLetters above throws away everything but W/D/L, which is
+// all the model needs but not enough to show an actual match list.
+export function h2hDetailRows(h2hAf: AfFixture[], count = 5): H2hDetailRow[] {
+  return [...h2hAf]
+    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
+    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime())
+    .slice(0, count)
+    .map((f) => ({
+      date: f.fixture.date,
+      league: f.league.name,
+      homeTeam: f.teams.home.name,
+      awayTeam: f.teams.away.name,
+      homeGoals: f.goals.home ?? 0,
+      awayGoals: f.goals.away ?? 0,
+    }));
+}
+
 export function formSummaryText(recent: RecentResult[], teamName: string): string {
   if (recent.length === 0) return `${teamName}: 최근 경기 데이터 없음`;
   const wins = recent.filter((r) => r.goals_for > r.goals_against).length;

@@ -22,6 +22,7 @@ import {
   mapRecentResults,
   alignH2hForModel,
   h2hResultLetters,
+  h2hDetailRows,
   formSummaryText,
   lineupSummaryText,
   computePlayerMeetingNotes,
@@ -99,6 +100,7 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
   const h2hAf = await getHeadToHead(homeApiId, awayApiId, 5).catch(() => []);
   const h2hForModel = alignH2hForModel(h2hAf, homeApiId);
   const h2hLetters = h2hResultLetters(h2hAf, homeApiId);
+  await supabase.from('fixtures').update({ quick_h2h_detail: h2hDetailRows(h2hAf) }).eq('id', fixture.id);
 
   const lineupsAf = await getLineups(fixture.api_football_fixture_id).catch(() => [] as AfLineup[]);
   if (lineupsAf.length > 0) {

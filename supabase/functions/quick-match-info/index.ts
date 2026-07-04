@@ -9,7 +9,7 @@
 // within CACHE_TTL_MS don't re-hit the API.
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
 import { getHeadToHead, getAverageMatchWinnerOdds } from '../_shared/apiFootball.ts';
-import { h2hResultLetters } from '../_shared/matchMapping.ts';
+import { h2hResultLetters, h2hDetailRows } from '../_shared/matchMapping.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -20,6 +20,7 @@ type FixtureRow = {
   home_team: { api_football_id: number };
   away_team: { api_football_id: number };
   quick_h2h: string[];
+  quick_h2h_detail: unknown[];
   quick_odds_home: number | null;
   quick_odds_draw: number | null;
   quick_odds_away: number | null;
@@ -49,7 +50,7 @@ Deno.serve(async (req) => {
   const { data, error } = await supabase
     .from('fixtures')
     .select(
-      'id, api_football_fixture_id, home_team:home_team_id(api_football_id), away_team:away_team_id(api_football_id), quick_h2h, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at'
+      'id, api_football_fixture_id, home_team:home_team_id(api_football_id), away_team:away_team_id(api_football_id), quick_h2h, quick_h2h_detail, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at'
     )
     .eq('id', fixtureId)
     .single();
@@ -69,6 +70,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         ok: true,
         h2h: fixture.quick_h2h ?? [],
+        h2hDetail: fixture.quick_h2h_detail ?? [],
         odds: { home: fixture.quick_odds_home, draw: fixture.quick_odds_draw, away: fixture.quick_odds_away },
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -83,11 +85,13 @@ Deno.serve(async (req) => {
     getAverageMatchWinnerOdds(fixture.api_football_fixture_id).catch(() => null),
   ]);
   const h2hLetters = h2hResultLetters(h2hAf, homeApiId);
+  const h2hDetail = h2hDetailRows(h2hAf);
 
   const { error: updateError } = await supabase
     .from('fixtures')
     .update({
       quick_h2h: h2hLetters,
+      quick_h2h_detail: h2hDetail,
       quick_odds_home: odds?.home ?? null,
       quick_odds_draw: odds?.draw ?? null,
       quick_odds_away: odds?.away ?? null,
@@ -102,7 +106,12 @@ Deno.serve(async (req) => {
   }
 
   return new Response(
-    JSON.stringify({ ok: true, h2h: h2hLetters, odds: { home: odds?.home ?? null, draw: odds?.draw ?? null, away: odds?.away ?? null } }),
+    JSON.stringify({
+      ok: true,
+      h2h: h2hLetters,
+      h2hDetail: h2hDetail,
+      odds: { home: odds?.home ?? null, draw: odds?.draw ?? null, away: odds?.away ?? null },
+    }),
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
 });

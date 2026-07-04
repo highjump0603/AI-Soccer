@@ -35,13 +35,14 @@ export function MatchesProvider({ children }) {
     refresh();
   }, [refresh]);
 
-  const applyQuickInfo = useCallback((fixtureId, { h2h, odds }) => {
+  const applyQuickInfo = useCallback((fixtureId, { h2h, h2hDetail, odds }) => {
     setMatches((prev) =>
       prev.map((m) =>
         m.id === fixtureId
           ? {
               ...m,
               h2h: m.hasPrediction ? m.h2h : h2h,
+              h2hDetail: m.hasPrediction ? m.h2hDetail : (h2hDetail ?? m.h2hDetail),
               odds: { ...m.odds, book: m.hasPrediction ? m.odds.book : odds },
               quickInfoFetchedAt: new Date().toISOString(),
             }
