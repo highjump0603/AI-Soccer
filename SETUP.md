@@ -11,12 +11,15 @@ for the prediction-pipeline design decisions.
 
 This was built in a sandboxed environment whose outbound network access is
 allowlisted to a handful of hosts (npm, github via a proxy) — `supabase.com`,
-`api.openai.com`, and `v3.football.api-sports.io` are all blocked from here
-(confirmed: plain `curl` to each returns a 403). That means none of this has
-been deployed or run against the live APIs yet — everything below is written
-against the documented API-Football v3 / Supabase / OpenAI contracts, but
-you'll be the first to actually exercise it end-to-end. If something errors
-on first run, paste me the error and I'll fix it.
+`api.openai.com`, `v3.football.api-sports.io`, `vercel.com`, `netlify.com`,
+and `pages.cloudflare.com` are all blocked from here (confirmed: plain
+`curl` to each returns a 403), and pushing this branch to GitHub also gets a
+403 (this session's git remote isn't authorized for write access to that
+repo). That means none of this has been deployed or run against the live
+APIs yet — everything below is written against the documented API-Football
+v3 / Supabase / OpenAI / hosting-provider contracts, but you'll be the first
+to actually exercise it end-to-end. If something errors on first run, paste
+me the error and I'll fix it.
 
 ## 1. Install the frontend
 
@@ -98,6 +101,42 @@ npm run dev
 
 Routes: `/` (home + dashboard), `/match/:id` (detail), `/admin` (tracked-
 fixture management — sync now / re-predict now / untrack).
+
+## 8. Deploy the frontend
+
+The app is a static Vite build (`npm run build` → `dist/`) that talks
+directly to Supabase from the browser, so any static host works. It uses
+`react-router-dom` with client-side routing (`/match/:id`, `/admin`), so
+whichever host you pick needs to rewrite all paths to `index.html` — that's
+already set up for you:
+
+- `vercel.json` — rewrites for Vercel
+- `public/_redirects` — rewrites for Netlify / Cloudflare Pages
+
+**Vercel** (recommended — zero-config for Vite):
+```
+npm install -g vercel
+vercel login
+vercel link
+vercel env add VITE_SUPABASE_URL production   # paste your Supabase URL
+vercel env add VITE_SUPABASE_ANON_KEY production   # paste your anon/publishable key
+vercel --prod
+```
+
+**Netlify**, as an alternative:
+```
+npm install -g netlify-cli
+netlify login
+netlify init
+netlify env:set VITE_SUPABASE_URL "https://aynsrteiuomwowjgzbji.supabase.co"
+netlify env:set VITE_SUPABASE_ANON_KEY "<your anon/publishable key>"
+netlify deploy --prod --build
+```
+
+Either way, once GitHub push access is sorted out (see the git-bundle/new-
+session note from earlier in this conversation), connecting the repo
+through the provider's dashboard instead of the CLI gets you auto-deploys
+on every push, which is usually nicer long-term than one-off CLI deploys.
 
 ## How the prediction actually works
 
