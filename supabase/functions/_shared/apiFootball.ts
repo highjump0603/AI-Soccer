@@ -44,21 +44,60 @@ export async function getFixturesByDate(dateStr: string) {
   return (await afGet('/fixtures', { date: dateStr })) as AfFixture[];
 }
 
-// A team's most recent finished matches, across all competitions — the raw
-// material for "form". `last` is capped at ~20 by the API.
-export async function getTeamRecentResults(teamId: number, last = 10) {
-  return (await afGet('/fixtures', { team: teamId, last })) as AfFixture[];
+const FINISHED_STATUSES = new Set(['FT', 'AET', 'PEN']);
+
+function toDateParam(d: Date) {
+  return d.toISOString().slice(0, 10);
 }
 
-// Past meetings between two clubs, most recent first.
-export async function getHeadToHead(teamAId: number, teamBId: number, last = 10) {
-  return (await afGet('/fixtures/headtohead', { h2h: `${teamAId}-${teamBId}`, last })) as AfFixture[];
+function mostRecentFinished(fixtures: AfFixture[], count: number) {
+  return fixtures
+    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
+    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime())
+    .slice(0, count);
+}
+
+// A team's most recent finished matches, across all competitions — the raw
+// material for "form". Free plans reject the `last` convenience param
+// ("Free plans do not have access to the Last parameter"), so instead pull
+// a wide date window and sort/slice client-side, same trick as
+// getFixturesByDate uses for fixture discovery. Passing `team` without
+// `league` also requires `season` ("The Season field is required."), and
+// since league season-year conventions differ (Aug-May vs. calendar-year),
+// query the current and previous year as separate season values and merge
+// - whichever one actually covers the team's competition will return rows,
+// the other comes back empty and is ignored.
+export async function getTeamRecentResults(teamId: number, count = 10) {
+  const to = new Date();
+  const from = new Date(to.getTime() - 365 * 86400000);
+  const seasons = [to.getFullYear(), to.getFullYear() - 1];
+  const perSeason = await Promise.all(
+    seasons.map((season) =>
+      afGet('/fixtures', { team: teamId, season, from: toDateParam(from), to: toDateParam(to) }).catch(() => [] as unknown[])
+    )
+  );
+  return mostRecentFinished(perSeason.flat() as AfFixture[], count);
+}
+
+// Past meetings between two clubs, most recent first. Same free-plan `last`
+// restriction as getTeamRecentResults, worked around the same way.
+export async function getHeadToHead(teamAId: number, teamBId: number, count = 10) {
+  const to = new Date();
+  const from = new Date(to.getTime() - 5 * 365 * 86400000);
+  const fixtures = (await afGet('/fixtures/headtohead', {
+    h2h: `${teamAId}-${teamBId}`,
+    from: toDateParam(from),
+    to: toDateParam(to),
+  })) as AfFixture[];
+  return mostRecentFinished(fixtures, count);
 }
 
 export type AfLineup = {
   team: { id: number; name: string };
   formation?: string;
-  startXI: { player: { id: number; name: string; pos?: string } }[];
+  // `grid` is API-Football's "row:col" pitch position (e.g. "2:3"), row 1 =
+  // goalkeeper end increasing toward attack — null for substitutes.
+  startXI: { player: { id: number; name: string; number?: number; pos?: string; grid?: string | null } }[];
   substitutes?: { player: { id: number; name: string; pos?: string } }[];
 };
 
