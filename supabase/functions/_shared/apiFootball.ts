@@ -31,9 +31,17 @@ export type AfFixture = {
   goals: { home: number | null; away: number | null };
 };
 
-// Upcoming fixtures for one league — used by sync-leagues to discover what to track.
-export async function getUpcomingFixtures(leagueId: number, season: number, next = 20) {
-  return (await afGet('/fixtures', { league: leagueId, season, next })) as AfFixture[];
+// All fixtures worldwide on a single calendar date — used by sync-leagues to
+// discover what to track. Deliberately NOT `league+season+next`: on the free
+// API-Football plan that combination is rejected outright ("Free plans do
+// not have access to this season"), but a plain `date=` lookup for a
+// near-term date works even on the free plan (confirmed against the live
+// API — it appears to only reject season-archive-style browsing, not
+// single-date lookups). Callers filter the result down to tracked leagues
+// themselves. If you're on a paid plan with full season access, this still
+// works fine, just less efficient than one `league+season+next` call.
+export async function getFixturesByDate(dateStr: string) {
+  return (await afGet('/fixtures', { date: dateStr })) as AfFixture[];
 }
 
 // A team's most recent finished matches, across all competitions — the raw

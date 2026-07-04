@@ -140,10 +140,15 @@ on every push, which is usually nicer long-term than one-off CLI deploys.
 
 ## How the prediction actually works
 
-- **`sync-leagues`** (cron every 6h): pulls upcoming fixtures for the
-  tracked leagues (see `supabase/functions/_shared/leagues.ts` — Premier
-  League, La Liga, Bundesliga, Serie A, K League 1, World Cup, national-team
-  friendlies) from API-Football and upserts teams/fixtures.
+- **`sync-leagues`** (cron every 6h): pulls fixtures for the tracked leagues
+  (see `supabase/functions/_shared/leagues.ts` — Premier League, La Liga,
+  Bundesliga, Serie A, K League 1, World Cup, national-team friendlies) from
+  API-Football and upserts teams/fixtures. Fetches by calendar date
+  (`date=YYYY-MM-DD`, `DAYS_AHEAD = 5` in `sync-leagues/index.ts`) rather
+  than `league+season+next` — the free API-Football plan flat-out rejects
+  that combination ("Free plans do not have access to this season"), but
+  single-date lookups work even on the free plan. Bump `DAYS_AHEAD` once
+  you're on a paid plan that allows browsing further ahead.
 - **`predict-due`** (cron every 30min, or manually per-fixture from
   `/admin`): for fixtures needing a fresh prediction, pulls each team's
   recent results, head-to-head history, and lineups (once released, usually

@@ -2,10 +2,20 @@
 // teams/fixtures rows the rest of the pipeline builds on. Run on a cron
 // (see migrations/0002_cron.sql) — this function only ever adds/refreshes
 // rows, it doesn't compute predictions (that's predict-due).
+//
+// Fetches by calendar date rather than league+season (see
+// _shared/apiFootball.ts: getFixturesByDate for why) and filters the
+// worldwide result down to TRACKED_LEAGUES client-side.
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
-import { getUpcomingFixtures, type AfFixture } from '../_shared/apiFootball.ts';
-import { TRACKED_LEAGUES, seasonForLeague } from '../_shared/leagues.ts';
+import { getFixturesByDate, type AfFixture } from '../_shared/apiFootball.ts';
+import { TRACKED_LEAGUES } from '../_shared/leagues.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
+
+// How many days ahead to look. The free API-Football plan only allows
+// near-term dates (a handful of days out) even though the season+next
+// combo it'd otherwise take to look further ahead is blocked entirely — see
+// getFixturesByDate's comment. Bump this once you're on a paid plan.
+const DAYS_AHEAD = 5;
 
 const STATUS_MAP: Record<string, string> = {
   NS: 'scheduled',
@@ -17,6 +27,8 @@ const STATUS_MAP: Record<string, string> = {
   CANC: 'cancelled',
   ABD: 'cancelled',
 };
+
+const TRACKED_BY_ID = new Map(TRACKED_LEAGUES.map((l) => [l.id, l.name]));
 
 async function upsertTeam(supabase: ReturnType<typeof getSupabaseAdmin>, team: { id: number; name: string; logo?: string }) {
   const { data, error } = await supabase
@@ -55,29 +67,45 @@ async function upsertFixture(
   if (error) throw error;
 }
 
+function dateStringsAhead(days: number) {
+  const out: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   const preflight = handleCors(req);
   if (preflight) return preflight;
 
   const supabase = getSupabaseAdmin();
-  const results: Record<string, number | string> = {};
+  const perLeagueCount: Record<string, number> = {};
+  const dateErrors: Record<string, string> = {};
 
-  for (const league of TRACKED_LEAGUES) {
+  for (const dateStr of dateStringsAhead(DAYS_AHEAD)) {
     try {
-      const season = seasonForLeague(league);
-      const fixtures = await getUpcomingFixtures(league.id, season, 20);
-      for (const af of fixtures) {
+      const fixturesToday = await getFixturesByDate(dateStr);
+      const tracked = fixturesToday.filter((af) => TRACKED_BY_ID.has(af.league.id));
+      for (const af of tracked) {
+        const leagueName = TRACKED_BY_ID.get(af.league.id)!;
         const homeId = await upsertTeam(supabase, af.teams.home);
         const awayId = await upsertTeam(supabase, af.teams.away);
-        await upsertFixture(supabase, af, league.name, homeId, awayId);
+        await upsertFixture(supabase, af, leagueName, homeId, awayId);
+        perLeagueCount[leagueName] = (perLeagueCount[leagueName] ?? 0) + 1;
       }
-      results[league.name] = fixtures.length;
     } catch (e) {
-      results[league.name] = `error: ${e instanceof Error ? e.message : String(e)}`;
+      dateErrors[dateStr] = e instanceof Error ? e.message : String(e);
     }
   }
 
-  return new Response(JSON.stringify({ ok: true, synced: results }), {
+  for (const league of TRACKED_LEAGUES) {
+    if (!(league.name in perLeagueCount)) perLeagueCount[league.name] = 0;
+  }
+
+  return new Response(JSON.stringify({ ok: true, synced: perLeagueCount, dateErrors }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 });

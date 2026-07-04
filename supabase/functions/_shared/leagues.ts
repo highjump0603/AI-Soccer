@@ -6,19 +6,17 @@
 // against GET /leagues once you have live access — this file couldn't be
 // tested against the live API from the build environment (no outbound
 // network access there).
-export const TRACKED_LEAGUES: { id: number; name: string; calendarYearSeason?: boolean }[] = [
+//
+// No season field here — sync-leagues discovers fixtures by calendar date
+// (see _shared/apiFootball.ts: getFixturesByDate) rather than by
+// league+season, and just keeps whatever season each returned fixture
+// reports for itself.
+export const TRACKED_LEAGUES: { id: number; name: string }[] = [
   { id: 39, name: '프리미어리그' },
   { id: 140, name: '라리가' },
   { id: 78, name: '분데스리가' },
   { id: 135, name: '세리에A' },
-  { id: 292, name: 'K리그1', calendarYearSeason: true },
+  { id: 292, name: 'K리그1' },
   { id: 1, name: '월드컵' },
   { id: 10, name: '국가대표' },
 ];
-
-export function seasonForLeague(league: { calendarYearSeason?: boolean }, now = new Date()) {
-  const year = now.getUTCFullYear();
-  if (league.calendarYearSeason) return year;
-  const month = now.getUTCMonth() + 1;
-  return month >= 7 ? year : year - 1;
-}

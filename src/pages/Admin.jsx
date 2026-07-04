@@ -43,7 +43,9 @@ export default function Admin() {
       const breakdown = Object.entries(result?.synced ?? {})
         .map(([league, value]) => `${league}: ${value}`)
         .join(' / ');
-      setNotice(breakdown ? `동기화 결과 — ${breakdown}` : '동기화 응답이 비어있습니다.');
+      const dateErrors = Object.entries(result?.dateErrors ?? {});
+      const errorNote = dateErrors.length ? ` (일부 날짜 조회 실패: ${dateErrors.map(([d, msg]) => `${d} - ${msg}`).join('; ')})` : '';
+      setNotice(breakdown ? `동기화 결과 — ${breakdown}${errorNote}` : '동기화 응답이 비어있습니다.');
       await load();
     } catch (e) {
       setError(e.message || '동기화에 실패했습니다.');
