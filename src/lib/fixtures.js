@@ -13,7 +13,11 @@ function formatKickoff(iso) {
 const round1 = (n) => (n == null ? 0 : Math.round(n * 10) / 10);
 
 function rowToMatch(row) {
-  const p = row.predictions;
+  // PostgREST embeds a unique-FK relation as a single object/null, but
+  // depending on how it resolves the relationship it can come back as an
+  // array instead ([] for none, [{...}] for one) - normalize either shape
+  // so an empty array doesn't get treated as a truthy "prediction exists".
+  const p = Array.isArray(row.predictions) ? (row.predictions[0] ?? null) : row.predictions;
   return {
     id: row.id,
     league: row.league,
