@@ -6,10 +6,11 @@ import TeamLogo from '../components/TeamLogo';
 import ProbBar from '../components/ProbBar';
 import { useMatches } from '../lib/MatchesContext';
 import { confidenceMeta } from '../lib/constants';
-import { fetchQuickMatchInfo, fetchLineups, fetchRecentForm } from '../lib/fixtures';
+import { fetchQuickMatchInfo, fetchLineups, fetchRecentForm, triggerEstimateLineup } from '../lib/fixtures';
 import FormationPitch from '../components/FormationPitch';
 
 const fmtOdds = (v) => (v == null ? '—' : v.toFixed(2));
+const lineupLabel = (source) => (source === 'confirmed' ? ' (확정)' : source === 'estimated' ? ' (추정)' : ' (예상)');
 
 export default function MatchDetail() {
   const { id } = useParams();
@@ -37,19 +38,33 @@ export default function MatchDetail() {
     setLineups(null);
     if (!match) return;
     let cancelled = false;
-    fetchLineups(match.id)
-      .then((rows) => {
-        if (cancelled) return;
+
+    const loadLineups = () =>
+      fetchLineups(match.id).then((rows) => {
+        if (cancelled) return rows;
         setLineups({
           home: rows.filter((r) => r.team_id === match.home.id),
           away: rows.filter((r) => r.team_id === match.away.id),
         });
+        return rows;
+      });
+
+    loadLineups()
+      .then((rows) => {
+        // No official (predicted/confirmed) lineup yet and we haven't tried
+        // estimating one recently — ask the server to build a best-guess XI
+        // from recent form, then reload once it's done.
+        if (cancelled || match.actualScore || match.estimatedLineupFetchedAt) return;
+        const hasOfficial = rows.some((r) => r.source === 'confirmed' || r.source === 'predicted');
+        if (hasOfficial) return;
+        return triggerEstimateLineup(match.id).then(() => (cancelled ? null : loadLineups()));
       })
       .catch(() => {});
+
     return () => {
       cancelled = true;
     };
-  }, [match?.id, match?.home?.id, match?.away?.id]);
+  }, [match?.id, match?.home?.id, match?.away?.id, match?.actualScore, match?.estimatedLineupFetchedAt]);
 
   const [recentForm, setRecentForm] = useState(null);
   useEffect(() => {
@@ -219,7 +234,7 @@ export default function MatchDetail() {
                 <div className="detail-card">
                   <div className="detail-block-title">
                     선발 라인업
-                    {(lineups.home[0]?.source ?? lineups.away[0]?.source) === 'confirmed' ? ' (확정)' : ' (예상)'}
+                    {lineupLabel(lineups.home[0]?.source ?? lineups.away[0]?.source)}
                   </div>
                   <div className="detail-grid">
                     <div>
@@ -276,7 +291,7 @@ export default function MatchDetail() {
           {hasGridLineups && (
             <div style={{ marginTop: 'var(--space-5)' }}>
               <div className="detail-block-title">
-                선발 라인업{(lineups.home[0]?.source ?? lineups.away[0]?.source) === 'confirmed' ? ' (확정)' : ' (예상)'}
+                선발 라인업{lineupLabel(lineups.home[0]?.source ?? lineups.away[0]?.source)}
               </div>
               <FormationPitch
                 teamName={match.home.name}

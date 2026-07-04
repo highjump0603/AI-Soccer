@@ -11,3 +11,6 @@ verify_jwt = true
 
 [functions.quick-match-info]
 verify_jwt = true
+
+[functions.estimate-lineup]
+verify_jwt = true

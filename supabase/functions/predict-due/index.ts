@@ -102,6 +102,9 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
 
   const lineupsAf = await getLineups(fixture.api_football_fixture_id).catch(() => [] as AfLineup[]);
   if (lineupsAf.length > 0) {
+    // Official lineup just landed - clear out our own guess so the UI shows
+    // the real thing instead of a stale estimate sitting alongside it.
+    await supabase.from('lineups').delete().eq('fixture_id', fixture.id).eq('source', 'estimated');
     for (const l of lineupsAf) {
       const teamRowId = l.team.id === homeApiId ? fixture.home_team.id : fixture.away_team.id;
       await upsertPlayerAndLineup(supabase, fixture.id, teamRowId, l, 'confirmed').catch(() => {});
