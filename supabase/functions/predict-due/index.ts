@@ -17,6 +17,7 @@ import { runPoissonModel } from '../_shared/poisson.ts';
 import { getGptPrediction } from '../_shared/openai.ts';
 import { ensemblePredictions } from '../_shared/ensemble.ts';
 import { cacheTeamRecentResults, ensureFixtureRow, upsertPlayerAndLineup } from '../_shared/cache.ts';
+import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import {
   mapRecentResults,
   alignH2hForModel,
@@ -215,6 +216,9 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
 }
 
 Deno.serve(async (req) => {
+  const preflight = handleCors(req);
+  if (preflight) return preflight;
+
   const supabase = getSupabaseAdmin();
   let forcedFixtureId: number | undefined;
   try {
@@ -238,6 +242,6 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ ok: true, processed: due.length, results }), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 });

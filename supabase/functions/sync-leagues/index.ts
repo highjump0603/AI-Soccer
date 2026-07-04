@@ -5,6 +5,7 @@
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
 import { getUpcomingFixtures, type AfFixture } from '../_shared/apiFootball.ts';
 import { TRACKED_LEAGUES, seasonForLeague } from '../_shared/leagues.ts';
+import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 const STATUS_MAP: Record<string, string> = {
   NS: 'scheduled',
@@ -54,7 +55,10 @@ async function upsertFixture(
   if (error) throw error;
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  const preflight = handleCors(req);
+  if (preflight) return preflight;
+
   const supabase = getSupabaseAdmin();
   const results: Record<string, number | string> = {};
 
@@ -74,6 +78,6 @@ Deno.serve(async () => {
   }
 
   return new Response(JSON.stringify({ ok: true, synced: results }), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 });

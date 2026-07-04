@@ -2,8 +2,12 @@
 // prediction rows). This is the only write path the admin page has now —
 // there's no direct table access from the anon key anymore.
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
+import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
+  const preflight = handleCors(req);
+  if (preflight) return preflight;
+
   let fixtureId: number | undefined;
   try {
     const body = await req.json();
@@ -15,7 +19,7 @@ Deno.serve(async (req) => {
   if (fixtureId == null) {
     return new Response(JSON.stringify({ ok: false, error: 'fixture_id (number) is required' }), {
       status: 400,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
@@ -24,9 +28,9 @@ Deno.serve(async (req) => {
   if (error) {
     return new Response(JSON.stringify({ ok: false, error: error.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
-  return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 });
