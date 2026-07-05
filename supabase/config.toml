@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.fetch-standings]
 verify_jwt = true
+
+[functions.clear-backtest-results]
+verify_jwt = true
