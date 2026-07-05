@@ -231,12 +231,46 @@ export async function clearBacktestResults() {
 }
 
 export async function listBacktestLeagues() {
-  const fallbackLeagues = ['프리미어리그', 'EPL', '라리가', 'La Liga', '분데스리가', 'Bundesliga', '세리에A', 'Serie A', '리그앙', 'Ligue 1', 'K리그1', '월드컵', 'World Cup'];
+  const fallbackLeagues = [
+    { value: '프리미어리그', label: '프리미어리그' },
+    { value: '라리가', label: '라리가' },
+    { value: '분데스리가', label: '분데스리가' },
+    { value: '세리에A', label: '세리에A' },
+    { value: '리그앙', label: '리그앙' },
+    { value: 'K리그1', label: 'K리그1' },
+    { value: '월드컵', label: '월드컵' },
+    { value: 'EPL', label: '프리미어리그' },
+    { value: 'La Liga', label: '라리가' },
+    { value: 'Bundesliga', label: '분데스리가' },
+    { value: 'Serie A', label: '세리에A' },
+    { value: 'Ligue 1', label: '리그앙' },
+    { value: 'World Cup', label: '월드컵' },
+  ];
+
   const { data, error } = await supabase.from('fixtures').select('league').not('league', 'is', null).order('league', { ascending: true });
   if (error) throw error;
 
-  const fromFixtures = (data ?? []).map((row) => row.league).filter(Boolean);
-  return [...new Set([...fallbackLeagues, ...fromFixtures])].sort((a, b) => a.localeCompare(b, 'ko'));
+  const fromFixtures = (data ?? [])
+    .map((row) => row.league)
+    .filter(Boolean)
+    .map((league) => {
+      const normalized = String(league).trim();
+      const fallback = fallbackLeagues.find((item) => item.value === normalized);
+      if (fallback) {
+        return { value: fallback.value, label: fallback.label };
+      }
+      return { value: normalized, label: normalized };
+    });
+
+  const merged = [...fallbackLeagues, ...fromFixtures];
+  const unique = new Map();
+  for (const item of merged) {
+    if (!unique.has(item.value)) {
+      unique.set(item.value, item);
+    }
+  }
+
+  return [...unique.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'));
 }
 
 export async function fetchBacktestResults(limit) {

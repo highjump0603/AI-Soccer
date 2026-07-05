@@ -250,8 +250,8 @@ export default function Admin() {
         <select className="admin-select" value={backtestLeague} onChange={(e) => setBacktestLeague(e.target.value)}>
           <option value="">리그 선택</option>
           {backtestLeagues.map((league) => (
-            <option key={league} value={league}>
-              {league}
+            <option key={league.value} value={league.value}>
+              {league.label}
             </option>
           ))}
         </select>
