@@ -158,19 +158,30 @@ Deno.serve(async (req) => {
       const { data: fixtures, error } = await supabase
         .from('fixtures')
         .select('fotmob_id, league, season, kickoff_at, home_score_actual, away_score_actual, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
-        .eq('status', 'finished')
         .order('kickoff_at', { ascending: false })
-        .limit(Math.max(50, (body.count ?? 5) * 10));
+        .limit(Math.max(200, (body.count ?? 5) * 20));
       if (error) throw error;
 
-      const matchingFixtures = (fixtures ?? []).filter((fixture) => {
+      const normalizedFixtures = (fixtures ?? []).filter((fixture) => {
+        const hasFinalScore = fixture.home_score_actual != null && fixture.away_score_actual != null;
+        return fixture?.fotmob_id && (fixture.status === 'finished' || hasFinalScore);
+      });
+
+      const matchingFixtures = normalizedFixtures.filter((fixture) => {
         const fixtureLeague = normalizeLeagueName(fixture.league);
-        const sameSeason = fixture.season == null || fixture.season === seasonYear;
-        const sameLeague = !requestedLeague || fixtureLeague === requestedLeague || normalizeLeagueName(body.league) === fixtureLeague;
+        const sameSeason = fixture.season == null || fixture.season === seasonYear || String(fixture.season ?? '') === String(seasonYear);
+        const sameLeague = !requestedLeague || fixtureLeague === requestedLeague;
         return sameSeason && sameLeague;
       });
 
-      for (const fixture of matchingFixtures.slice(0, body.count ?? 5)) {
+      const fallbackFixtures = matchingFixtures.length > 0 ? matchingFixtures : normalizedFixtures.filter((fixture) => {
+        const fixtureLeague = normalizeLeagueName(fixture.league);
+        return !requestedLeague || fixtureLeague === requestedLeague;
+      });
+
+      const resolvedFixtures = fallbackFixtures.length > 0 ? fallbackFixtures : normalizedFixtures.slice(0, body.count ?? 5);
+
+      for (const fixture of resolvedFixtures.slice(0, body.count ?? 5)) {
         if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
         targets.push({
           id: fixture.fotmob_id,
