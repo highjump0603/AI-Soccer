@@ -1,5 +1,44 @@
 import { supabase } from './supabaseClient';
 
+async function invokeEdgeFunction(name, body = {}) {
+  try {
+    const { data, error } = await supabase.functions.invoke(name, { body });
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !anonKey) {
+      throw error;
+    }
+
+    const response = await fetch(`${url.replace(/\/$/, '')}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+
+    const text = await response.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+
+    if (!response.ok) {
+      const message = data?.error || data?.message || `Edge Function ${name} returned ${response.status}`;
+      throw new Error(message);
+    }
+
+    return data;
+  }
+}
+
 function formatKickoff(iso) {
   const d = new Date(iso);
   const tz = 'Asia/Seoul';
@@ -141,15 +180,11 @@ export async function listAllFixturesForAdmin() {
 }
 
 export async function triggerSyncLeagues() {
-  const { data, error } = await supabase.functions.invoke('sync-leagues', { body: {} });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('sync-leagues', {});
 }
 
 export async function triggerPredictFixture(fixtureId) {
-  const { data, error } = await supabase.functions.invoke('predict-due', { body: { fixture_id: fixtureId } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('predict-due', { fixture_id: fixtureId });
 }
 
 // Runs the same "what's due" pass predict-due's cron trigger does, but
@@ -157,23 +192,17 @@ export async function triggerPredictFixture(fixtureId) {
 // get an AI prediction immediately instead of waiting for the next
 // scheduled cron tick (up to 30 minutes away).
 export async function triggerPredictAllDue() {
-  const { data, error } = await supabase.functions.invoke('predict-due', { body: {} });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('predict-due', {});
 }
 
 export async function untrackFixture(fixtureId) {
-  const { data, error } = await supabase.functions.invoke('untrack-fixture', { body: { fixture_id: fixtureId } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('untrack-fixture', { fixture_id: fixtureId });
 }
 
 // Fetches just h2h + bookmaker odds for one fixture so the detail page has
 // something to show before the full prediction pipeline gets to it.
 export async function fetchQuickMatchInfo(fixtureId) {
-  const { data, error } = await supabase.functions.invoke('quick-match-info', { body: { fixture_id: fixtureId } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('quick-match-info', { fixture_id: fixtureId });
 }
 
 // Builds a best-guess starting XI + formation from each team's recent
@@ -181,9 +210,7 @@ export async function fetchQuickMatchInfo(fixtureId) {
 // straight to the `lineups`/`fixtures` tables server-side — callers should
 // just re-run fetchLineups() afterward to pick up the new rows.
 export async function triggerEstimateLineup(fixtureId) {
-  const { data, error } = await supabase.functions.invoke('estimate-lineup', { body: { fixture_id: fixtureId } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('estimate-lineup', { fixture_id: fixtureId });
 }
 
 // League table for one competition, cached in `league_standings`. Public
@@ -203,9 +230,7 @@ export async function fetchStandings(fotmobLeagueId) {
 // fetch-standings for the TTL) — callers should re-run fetchStandings()
 // afterward to pick up any new rows.
 export async function triggerFetchStandings(fotmobLeagueId) {
-  const { data, error } = await supabase.functions.invoke('fetch-standings', { body: { fotmob_league_id: fotmobLeagueId } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('fetch-standings', { fotmob_league_id: fotmobLeagueId });
 }
 
 // Runs the real prediction pipeline against a league/season's most recent
@@ -213,21 +238,15 @@ export async function triggerFetchStandings(fotmobLeagueId) {
 // kickoff, and stores the comparison against the real result in
 // `backtest_results`.
 export async function runBacktestForLeagueSeason(league, season, count = 5) {
-  const { data, error } = await supabase.functions.invoke('backtest', { body: { league, season, count } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('backtest', { league, season, count });
 }
 
 export async function runBacktestForMatch(fotmobMatchId) {
-  const { data, error } = await supabase.functions.invoke('backtest', { body: { matchId: fotmobMatchId } });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('backtest', { matchId: fotmobMatchId });
 }
 
 export async function clearBacktestResults() {
-  const { data, error } = await supabase.functions.invoke('clear-backtest-results', { body: {} });
-  if (error) throw error;
-  return data;
+  return invokeEdgeFunction('clear-backtest-results', {});
 }
 
 export async function listBacktestLeagues() {
