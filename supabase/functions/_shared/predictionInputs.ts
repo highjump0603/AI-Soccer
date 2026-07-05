@@ -76,7 +76,10 @@ export async function gatherPredictionInputs(
 ): Promise<PredictionInputs> {
   const cutoffMs = new Date(params.excludeAtOrAfter).getTime();
 
-  const [homeAllMatches, awayAllMatches] = await Promise.all([getTeamFixtures(params.homeFotmobId), getTeamFixtures(params.awayFotmobId)]);
+  const [homeAllMatches, awayAllMatches] = await Promise.all([
+    getTeamFixtures(params.homeFotmobId).catch(() => []),
+    getTeamFixtures(params.awayFotmobId).catch(() => []),
+  ]);
   const homeRecentMatches = homeAllMatches
     .filter((m) => beforeCutoff(m, cutoffMs))
     .sort((a, b) => new Date(b.status!.utcTime!).getTime() - new Date(a.status!.utcTime!).getTime())
@@ -133,7 +136,12 @@ export async function gatherPredictionInputs(
     return `${teamName}: 최근 ${cardCounts.length}경기 평균 ${avg.toFixed(1)}장`;
   };
 
-  const details = await getMatchDetails(params.fotmobMatchId);
+  let details: Awaited<ReturnType<typeof getMatchDetails>>;
+  try {
+    details = await getMatchDetails(params.fotmobMatchId);
+  } catch {
+    details = { general: {}, header: { teams: [] }, content: {} } as Awaited<ReturnType<typeof getMatchDetails>>;
+  }
 
   const h2hAll = getHeadToHead(details).filter((m) => {
     const t = m.time?.utcTime ? new Date(m.time.utcTime).getTime() : null;

@@ -126,14 +126,14 @@ export type FmLeagueTable = { leagueName: string; season: string | null; groups:
 // round) — callers should apply the same de-dup-by-team pattern the old
 // getStandings caller used for API-Football's split rounds.
 export async function getLeagueTable(fotmobLeagueId: number): Promise<FmLeagueTable> {
-  const json = (await fmGet('/leagues', { id: fotmobLeagueId })) as {
+  const json = (await fmGet('/leagues', { id: fotmobLeagueId }).catch(() => null)) as {
     details?: { name?: string };
     allAvailableSeasons?: string[];
     table?: { data?: { leagueName?: string; table?: { all?: FmStandingRow[] } } }[];
-  };
-  const leagueName = json.details?.name ?? '';
-  const season = json.allAvailableSeasons?.[0] ?? null;
-  const tableEntries = json.table ?? [];
+  } | null;
+  const leagueName = json?.details?.name ?? '';
+  const season = json?.allAvailableSeasons?.[0] ?? null;
+  const tableEntries = json?.table ?? [];
   const groups = tableEntries
     .map((entry) => ({ leagueName: entry?.data?.leagueName ?? leagueName, rows: entry?.data?.table?.all ?? [] }))
     .filter((g) => g.rows.length > 0);
@@ -152,10 +152,10 @@ export async function getLeagueTable(fotmobLeagueId: number): Promise<FmLeagueTa
 // so this is the direct replacement for API-Football's
 // getTeamRecentResults — sort/filter/slice client-side same as before.
 export async function getTeamFixtures(fotmobTeamId: number): Promise<FmMatch[]> {
-  const json = (await fmGet('/teams', { id: fotmobTeamId })) as {
+  const json = (await fmGet('/teams', { id: fotmobTeamId }).catch(() => null)) as {
     fixtures?: { allFixtures?: { fixtures?: (FmMatch & { home: FmTeamRef; away: FmTeamRef })[] } };
-  };
-  return json.fixtures?.allFixtures?.fixtures ?? [];
+  } | null;
+  return json?.fixtures?.allFixtures?.fixtures ?? [];
 }
 
 // Most recent finished matches from a getTeamFixtures()/getFixturesByDate()
@@ -239,7 +239,12 @@ export type FmMatchDetails = {
 // of it (see getMatchStats/getLineups/getHeadToHead/getTeamForm below)
 // rather than re-fetching per concern.
 export async function getMatchDetails(fotmobMatchId: number): Promise<FmMatchDetails> {
-  return (await fmGet('/matchDetails', { matchId: fotmobMatchId })) as FmMatchDetails;
+  const json = (await fmGet('/matchDetails', { matchId: fotmobMatchId }).catch(() => null)) as FmMatchDetails | null;
+  return {
+    general: json?.general ?? {},
+    header: json?.header ?? { teams: [] },
+    content: json?.content ?? {},
+  };
 }
 
 export type NormalizedStat = { key: string; title: string; home: string; away: string; type?: string };

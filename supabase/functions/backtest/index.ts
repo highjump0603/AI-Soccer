@@ -45,7 +45,13 @@ function normalizeLeagueName(value: string | null | undefined) {
 async function backtestOneMatch(supabase: Supabase, m: FmMatch) {
   if (m.home.score == null || m.away.score == null) throw new Error('match has no final score yet');
 
-  const details = await getMatchDetails(m.id);
+  let details: Awaited<ReturnType<typeof getMatchDetails>>;
+  try {
+    details = await getMatchDetails(m.id);
+  } catch {
+    details = { general: {}, header: { teams: [] }, content: {} } as Awaited<ReturnType<typeof getMatchDetails>>;
+  }
+
   const kickoffAt = details.general.matchTimeUTCDate ?? m.status?.utcTime ?? new Date().toISOString();
   const leagueId = details.general.leagueId ?? m.leagueId ?? null;
   const leagueName = details.general.leagueName ?? '';
