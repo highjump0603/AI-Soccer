@@ -442,18 +442,20 @@ export default function MatchDetail() {
               <div className="detail-block-title">
                 선발 라인업{lineupLabel(lineups.home[0]?.source ?? lineups.away[0]?.source)}
               </div>
-              <FormationPitch
-                teamName={match.home.name}
-                teamLogoUrl={match.home.logoUrl}
-                formation={match.homeFormation}
-                players={lineups.home}
-              />
-              <FormationPitch
-                teamName={match.away.name}
-                teamLogoUrl={match.away.logoUrl}
-                formation={match.awayFormation}
-                players={lineups.away}
-              />
+              <div className="lineup-pitches">
+                <FormationPitch
+                  teamName={match.home.name}
+                  teamLogoUrl={match.home.logoUrl}
+                  formation={match.homeFormation}
+                  players={lineups.home}
+                />
+                <FormationPitch
+                  teamName={match.away.name}
+                  teamLogoUrl={match.away.logoUrl}
+                  formation={match.awayFormation}
+                  players={lineups.away}
+                />
+              </div>
             </div>
           )}
         </>
