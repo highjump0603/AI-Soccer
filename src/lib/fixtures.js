@@ -231,46 +231,46 @@ export async function clearBacktestResults() {
 }
 
 export async function listBacktestLeagues() {
-  const fallbackLeagues = [
-    { value: '프리미어리그', label: '프리미어리그' },
-    { value: '라리가', label: '라리가' },
-    { value: '분데스리가', label: '분데스리가' },
-    { value: '세리에A', label: '세리에A' },
-    { value: '리그앙', label: '리그앙' },
-    { value: 'K리그1', label: 'K리그1' },
-    { value: '월드컵', label: '월드컵' },
-    { value: 'EPL', label: '프리미어리그' },
-    { value: 'La Liga', label: '라리가' },
-    { value: 'Bundesliga', label: '분데스리가' },
-    { value: 'Serie A', label: '세리에A' },
-    { value: 'Ligue 1', label: '리그앙' },
-    { value: 'World Cup', label: '월드컵' },
-  ];
+  const normalizedLeagueMap = {
+    프리미어리그: '프리미어리그',
+    EPL: '프리미어리그',
+    라리가: '라리가',
+    'La Liga': '라리가',
+    분데스리가: '분데스리가',
+    Bundesliga: '분데스리가',
+    세리에A: '세리에A',
+    'Serie A': '세리에A',
+    리그앙: '리그앙',
+    'Ligue 1': '리그앙',
+    K리그1: 'K리그1',
+    월드컵: '월드컵',
+    'World Cup': '월드컵',
+  };
+
+  const fallbackLeagues = ['프리미어리그', '라리가', '분데스리가', '세리에A', '리그앙', 'K리그1', '월드컵'];
 
   const { data, error } = await supabase.from('fixtures').select('league').not('league', 'is', null).order('league', { ascending: true });
   if (error) throw error;
 
   const fromFixtures = (data ?? [])
-    .map((row) => row.league)
+    .map((row) => String(row.league ?? '').trim())
     .filter(Boolean)
-    .map((league) => {
-      const normalized = String(league).trim();
-      const fallback = fallbackLeagues.find((item) => item.value === normalized);
-      if (fallback) {
-        return { value: fallback.value, label: fallback.label };
-      }
-      return { value: normalized, label: normalized };
-    });
+    .map((league) => normalizedLeagueMap[league] ?? league)
+    .filter(Boolean);
 
   const merged = [...fallbackLeagues, ...fromFixtures];
-  const unique = new Map();
-  for (const item of merged) {
-    if (!unique.has(item.value)) {
-      unique.set(item.value, item);
+  const unique = new Set();
+  const result = [];
+
+  for (const league of merged) {
+    const canonical = normalizedLeagueMap[league] ?? league;
+    if (!unique.has(canonical)) {
+      unique.add(canonical);
+      result.push({ value: canonical, label: canonical });
     }
   }
 
-  return [...unique.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'));
+  return result.sort((a, b) => a.label.localeCompare(b.label, 'ko'));
 }
 
 export async function fetchBacktestResults(limit) {
