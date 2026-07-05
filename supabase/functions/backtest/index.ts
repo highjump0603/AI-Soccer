@@ -170,10 +170,14 @@ Deno.serve(async (req) => {
         .limit(Math.max(200, (body.count ?? 5) * 20));
       if (error) throw error;
 
-      const normalizedFixtures = (fixtures ?? []).filter((fixture) => {
-        const hasFinalScore = fixture.home_score_actual != null && fixture.away_score_actual != null;
-        return fixture?.fotmob_id && (fixture.status === 'finished' || hasFinalScore);
-      });
+      const normalizedFixtures = (fixtures ?? [])
+        .filter((fixture) => fixture?.fotmob_id)
+        .filter((fixture) => {
+          const hasFinalScore = fixture.home_score_actual != null && fixture.away_score_actual != null;
+          const isFinished = fixture.status === 'finished';
+          return isFinished && hasFinalScore;
+        })
+        .filter((fixture, index, all) => all.findIndex((item) => item.fotmob_id === fixture.fotmob_id) === index);
 
       const matchingFixtures = normalizedFixtures.filter((fixture) => {
         const fixtureLeague = normalizeLeagueName(fixture.league);
