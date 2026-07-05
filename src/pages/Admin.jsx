@@ -28,9 +28,18 @@ export default function Admin() {
   const [backtestResults, setBacktestResults] = useState([]);
   const [backtestNotice, setBacktestNotice] = useState('');
   const [backtestError, setBacktestError] = useState('');
+  const [backtestPage, setBacktestPage] = useState(1);
+
+  const backtestPageSize = 15;
+  const backtestPageCount = Math.max(1, Math.ceil(backtestResults.length / backtestPageSize));
+  const visibleBacktestResults = backtestResults.slice(
+    (backtestPage - 1) * backtestPageSize,
+    backtestPage * backtestPageSize
+  );
 
   const loadBacktestResults = useCallback(async () => {
     try {
+      setBacktestPage(1);
       setBacktestResults(await fetchBacktestResults());
     } catch (e) {
       setBacktestError(e.message || '백테스트 결과를 불러오지 못했습니다.');
@@ -225,7 +234,7 @@ export default function Admin() {
         </div>
       </div>
 
-      <div className="admin-actions" style={{ marginBottom: 'var(--space-5)', alignItems: 'center' }}>
+      <div className="admin-actions admin-actions--backtest" style={{ marginBottom: 'var(--space-5)' }}>
         <select
           className="admin-select"
           value={backtestTeamId}
@@ -246,7 +255,7 @@ export default function Admin() {
           value={backtestCount}
           onChange={(e) => setBacktestCount(e.target.value)}
         />
-        <span style={{ color: 'var(--fg-3)', fontSize: 13 }}>경기 (최근 종료 경기부터)</span>
+        <span className="backtest-helper">경기 (최근 종료 경기부터)</span>
         <Button variant="primary" size="md" onClick={handleRunBacktest} disabled={backtestRunning || !backtestTeamId}>
           {backtestRunning ? '백테스트 실행 중...' : '백테스트 실행'}
         </Button>
@@ -273,7 +282,7 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                {backtestResults.map((r) => (
+                {visibleBacktestResults.map((r) => (
                   <tr key={r.id}>
                     <td>{r.league || '—'}</td>
                     <td>
@@ -293,12 +302,25 @@ export default function Admin() {
                     <td style={{ color: r.score_correct ? 'var(--color-success)' : 'var(--fg-3)' }}>
                       {r.score_correct ? '적중' : '—'}
                     </td>
-                    <td style={{ maxWidth: 360, whiteSpace: 'normal' }}>{r.analysis}</td>
+                    <td style={{ maxWidth: 360, whiteSpace: 'normal', wordBreak: 'break-word' }}>{r.analysis}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {backtestResults.length > backtestPageSize && (
+            <div className="backtest-pagination" role="navigation" aria-label="백테스팅 결과 페이지">
+              <button className="mini-btn" onClick={() => setBacktestPage((page) => Math.max(1, page - 1))} disabled={backtestPage === 1}>
+                이전
+              </button>
+              <span className="backtest-pagination__status">
+                {backtestPage}/{backtestPageCount}
+              </span>
+              <button className="mini-btn" onClick={() => setBacktestPage((page) => Math.min(backtestPageCount, page + 1))} disabled={backtestPage === backtestPageCount}>
+                다음
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

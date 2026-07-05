@@ -229,14 +229,19 @@ export async function runBacktestForMatch(fotmobMatchId) {
   return data;
 }
 
-export async function fetchBacktestResults(limit = 30) {
-  const { data, error } = await supabase
+export async function fetchBacktestResults(limit) {
+  let query = supabase
     .from('backtest_results')
     .select(
       'id, fotmob_match_id, league, home_team_name, away_team_name, kickoff_at, predicted_prob_home, predicted_prob_draw, predicted_prob_away, predicted_score_home, predicted_score_away, actual_score_home, actual_score_away, outcome_correct, score_correct, factors, analysis, run_at'
     )
-    .order('run_at', { ascending: false })
-    .limit(limit);
+    .order('run_at', { ascending: false });
+
+  if (typeof limit === 'number' && limit > 0) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return data;
 }
