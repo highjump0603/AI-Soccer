@@ -1,84 +1,84 @@
-import type { AfFixture, AfLineup } from './apiFootball.ts';
+import type { FmMatch, FmTeamLineup } from './fotmob.ts';
 import { getSupabaseAdmin } from './supabaseAdmin.ts';
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
 
-const FINISHED_STATUSES = new Set(['FT', 'AET', 'PEN']);
+const FM_GROUP_ROW: Record<string, number> = { G: 1, D: 2, M: 3, F: 4 };
+
+function fmGroup(usualPlayingPositionId?: number): keyof typeof FM_GROUP_ROW {
+  if (usualPlayingPositionId === 0) return 'G';
+  if (usualPlayingPositionId === 1) return 'D';
+  if (usualPlayingPositionId === 3) return 'F';
+  return 'M';
+}
 
 // Best-effort cache of a team's match log — used for the player-meeting
 // cross-reference and as a record of what the model saw. Failures here
 // shouldn't fail the whole prediction, so callers should swallow errors.
-export async function cacheTeamRecentResults(supabase: Supabase, teamRowId: number, teamApiId: number, afFixtures: AfFixture[]) {
-  const rows = afFixtures
-    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
-    .map((f) => {
-      const isHome = f.teams.home.id === teamApiId;
-      const opponent = isHome ? f.teams.away : f.teams.home;
-      const goalsFor = (isHome ? f.goals.home : f.goals.away) ?? 0;
-      const goalsAgainst = (isHome ? f.goals.away : f.goals.home) ?? 0;
+export async function cacheTeamRecentResultsFm(supabase: Supabase, teamRowId: number, teamId: number, fmMatches: FmMatch[]) {
+  const rows = fmMatches
+    .filter((m) => m.status?.finished)
+    .map((m) => {
+      const isHome = m.home.id === teamId;
+      const opponent = isHome ? m.away : m.home;
+      const goalsFor = (isHome ? m.home.score : m.away.score) ?? 0;
+      const goalsAgainst = (isHome ? m.away.score : m.home.score) ?? 0;
       return {
         team_id: teamRowId,
-        api_football_fixture_id: f.fixture.id,
-        played_at: f.fixture.date,
+        fotmob_match_id: m.id,
+        played_at: m.status?.utcTime ?? new Date().toISOString(),
         opponent_name: opponent.name,
         venue: isHome ? 'home' : 'away',
         goals_for: goalsFor,
         goals_against: goalsAgainst,
         result: goalsFor > goalsAgainst ? 'W' : goalsFor < goalsAgainst ? 'L' : 'D',
-        competition: f.league.name,
+        competition: null as string | null,
       };
     });
   if (rows.length === 0) return;
-  await supabase.from('team_recent_results').upsert(rows, { onConflict: 'team_id,api_football_fixture_id' });
+  await supabase.from('team_recent_results').upsert(rows, { onConflict: 'team_id,fotmob_match_id' });
 }
 
-const STATUS_MAP: Record<string, string> = {
-  NS: 'scheduled',
-  TBD: 'scheduled',
-  FT: 'finished',
-  AET: 'finished',
-  PEN: 'finished',
-  PST: 'postponed',
-  CANC: 'cancelled',
-  ABD: 'cancelled',
-};
-
-// Upserts a team + fixture row for an arbitrary API-Football fixture (used
-// to bring a past head-to-head match into our `fixtures` table so its
-// lineup rows have somewhere to point their foreign key at). Returns our
-// internal fixture row id.
-export async function ensureFixtureRow(supabase: Supabase, af: AfFixture, leagueLabel: string) {
-  const upsertTeam = async (team: { id: number; name: string; logo?: string }) => {
+// Upserts a team + fixture row for an arbitrary FotMob match (used to bring
+// a past head-to-head match into our `fixtures` table so its lineup rows
+// have somewhere to point their foreign key at). Returns our internal
+// fixture row id. Note: FotMob's h2h/matches payloads don't always carry a
+// league id in the same field the way API-Football's did — callers pass a
+// label explicitly.
+export async function ensureFixtureRowFm(supabase: Supabase, m: FmMatch, leagueLabel: string) {
+  const upsertTeam = async (team: { id: number; name: string }) => {
     const { data, error } = await supabase
       .from('teams')
-      .upsert({ api_football_id: team.id, name: team.name, logo_url: team.logo }, { onConflict: 'api_football_id' })
+      .upsert(
+        { fotmob_id: team.id, name: team.name, logo_url: `https://images.fotmob.com/image_resources/logo/teamlogo/${team.id}.png` },
+        { onConflict: 'fotmob_id' }
+      )
       .select('id')
       .single();
     if (error) throw error;
     return data.id as number;
   };
 
-  const homeId = await upsertTeam(af.teams.home);
-  const awayId = await upsertTeam(af.teams.away);
+  const homeId = await upsertTeam(m.home);
+  const awayId = await upsertTeam(m.away);
 
   const { data, error } = await supabase
     .from('fixtures')
     .upsert(
       {
-        api_football_fixture_id: af.fixture.id,
-        api_football_league_id: af.league.id,
+        fotmob_id: m.id,
+        fotmob_league_id: m.leagueId,
         league: leagueLabel,
-        season: af.league.season,
-        kickoff_at: af.fixture.date,
-        venue: af.fixture.venue?.name ?? null,
-        status: STATUS_MAP[af.fixture.status.short] ?? 'finished',
+        season: new Date(m.status?.utcTime ?? Date.now()).getUTCFullYear(),
+        kickoff_at: m.status?.utcTime ?? new Date().toISOString(),
+        status: m.status?.finished ? 'finished' : m.status?.cancelled ? 'cancelled' : 'scheduled',
         home_team_id: homeId,
         away_team_id: awayId,
-        home_score_actual: af.goals.home,
-        away_score_actual: af.goals.away,
+        home_score_actual: m.home.score ?? null,
+        away_score_actual: m.away.score ?? null,
         last_synced_at: new Date().toISOString(),
       },
-      { onConflict: 'api_football_fixture_id' }
+      { onConflict: 'fotmob_id' }
     )
     .select('id')
     .single();
@@ -86,27 +86,26 @@ export async function ensureFixtureRow(supabase: Supabase, af: AfFixture, league
   return data.id as number;
 }
 
-export async function upsertPlayerAndLineup(
+export async function upsertPlayerAndLineupFm(
   supabase: Supabase,
   fixtureRowId: number,
   teamRowId: number,
-  lineup: AfLineup,
-  source: 'predicted' | 'confirmed'
+  lineup: FmTeamLineup,
+  source: 'predicted' | 'confirmed' | 'estimated'
 ) {
-  for (const entry of lineup.startXI) {
+  for (const entry of lineup.starters) {
     const { data: playerRow, error: playerErr } = await supabase
       .from('players')
       .upsert(
-        { api_football_id: entry.player.id, name: entry.player.name, team_id: teamRowId, position: entry.player.pos ?? null },
-        { onConflict: 'api_football_id' }
+        { fotmob_id: entry.id, name: entry.name, team_id: teamRowId, position: fmGroup(entry.usualPlayingPositionId) },
+        { onConflict: 'fotmob_id' }
       )
       .select('id')
       .single();
     if (playerErr) throw playerErr;
 
-    const [gridRowStr, gridColStr] = (entry.player.grid ?? '').split(':');
-    const gridRow = gridRowStr ? Number(gridRowStr) : null;
-    const gridCol = gridColStr ? Number(gridColStr) : null;
+    const group = fmGroup(entry.usualPlayingPositionId);
+    const shirtNumber = entry.shirtNumber != null ? Number(entry.shirtNumber) : null;
 
     await supabase.from('lineups').upsert(
       {
@@ -115,9 +114,11 @@ export async function upsertPlayerAndLineup(
         player_id: playerRow.id,
         is_starting: true,
         source,
-        shirt_number: entry.player.number ?? null,
-        grid_row: Number.isFinite(gridRow) ? gridRow : null,
-        grid_col: Number.isFinite(gridCol) ? gridCol : null,
+        shirt_number: Number.isFinite(shirtNumber) ? shirtNumber : null,
+        grid_row: FM_GROUP_ROW[group],
+        grid_col: Math.round((entry.horizontalLayout?.x ?? 0) * 100),
+        pos_x: entry.horizontalLayout?.x ?? null,
+        pos_y: entry.horizontalLayout?.y ?? null,
         captured_at: new Date().toISOString(),
       },
       { onConflict: 'fixture_id,team_id,player_id' }

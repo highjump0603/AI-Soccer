@@ -24,21 +24,28 @@ export default function MatchCard({ match }) {
           <TeamLogo name={match.home.name} remoteUrl={match.home.logoUrl} size={52} />
           <span className="tname">{match.home.name}</span>
         </div>
-        <div className="score">
-          {match.actualScore ? (
-            <>
-              {match.actualScore.home}
-              <span className="dash">–</span>
-              {match.actualScore.away}
-            </>
-          ) : match.hasPrediction ? (
-            <>
-              {match.score.home}
-              <span className="dash">–</span>
-              {match.score.away}
-            </>
-          ) : (
-            <span className="dash">VS</span>
+        <div>
+          <div className="score">
+            {match.actualScore ? (
+              <>
+                {match.actualScore.home}
+                <span className="dash">–</span>
+                {match.actualScore.away}
+              </>
+            ) : match.hasPrediction ? (
+              <>
+                {match.score.home}
+                <span className="dash">–</span>
+                {match.score.away}
+              </>
+            ) : (
+              <span className="dash">VS</span>
+            )}
+          </div>
+          {match.actualScore && match.hasPrediction && (
+            <div className="score-predicted-sub">
+              AI {match.score.home}–{match.score.away}
+            </div>
           )}
         </div>
         <div className="team">

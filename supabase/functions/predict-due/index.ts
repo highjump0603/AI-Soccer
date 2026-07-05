@@ -1,53 +1,68 @@
 // The core pipeline: for each fixture that needs a (re)prediction, pull
-// team form + head-to-head + lineups from API-Football, run the Poisson
-// statistical model, get GPT's independent read, ensemble the two, and
-// upsert the result into `predictions`.
+// team form + head-to-head + lineups + match stats from FotMob, run the
+// Poisson statistical model, get GPT's independent read, ensemble the two,
+// and upsert the result into `predictions`. Bookmaker odds come from a
+// separate, best-effort FotMob 1xBet odds call (see _shared/fotmob.ts's
+// getMatchOdds1xBet)
+// wrapped in its own try/catch so its absence never breaks a prediction.
 //
 // Two ways to invoke:
 //   - POST {} (or via cron)         -> processes whatever's "due" (bounded
 //                                       by MAX_PER_RUN so a big backlog
-//                                       can't blow through the API-Football
-//                                       rate limit in one shot)
+//                                       can't hammer FotMob in one shot)
 //   - POST { "fixture_id": 123 }    -> forces an immediate recompute of
 //                                       just that one fixture (the admin
 //                                       page's "지금 예측 갱신" button)
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
-import { getTeamRecentResults, getHeadToHead, getLineups, getAverageMatchWinnerOdds, type AfLineup } from '../_shared/apiFootball.ts';
+import {
+  getMatchDetails,
+  getMatchStats,
+  getLineups,
+  getHeadToHead,
+  getTeamFixtures,
+  mostRecentFinished,
+  getMatchOdds1xBet,
+} from '../_shared/fotmob.ts';
 import { runPoissonModel } from '../_shared/poisson.ts';
 import { getGptPrediction } from '../_shared/openai.ts';
 import { ensemblePredictions } from '../_shared/ensemble.ts';
-import { cacheTeamRecentResults, ensureFixtureRow, upsertPlayerAndLineup } from '../_shared/cache.ts';
+import { cacheTeamRecentResultsFm, upsertPlayerAndLineupFm } from '../_shared/cache.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 import {
-  mapRecentResults,
-  alignH2hForModel,
-  h2hResultLetters,
-  h2hDetailRows,
+  mapRecentResultsFm,
+  attachXgFm,
+  alignH2hForModelFm,
+  h2hResultLettersFm,
+  h2hDetailRowsFm,
   formSummaryText,
-  lineupSummaryText,
-  computePlayerMeetingNotes,
-  computeLineupOverlapRatio,
+  lineupSummaryTextFm,
 } from '../_shared/matchMapping.ts';
+
+type PlayerNote = { player: string; team: string; meetings: { date: string; result: string }[] };
 
 const MAX_PER_RUN = 8;
 const FULL_RECOMPUTE_AFTER_MS = 6 * 60 * 60 * 1000;
 const LINEUP_WATCH_WINDOW_MS = 3 * 60 * 60 * 1000;
+// After kickoff, keep rechecking for a while so match_stats (which only
+// exist once the game has actually started/finished) gets filled in soon
+// after the final whistle rather than waiting for the next full recompute.
+const POST_KICKOFF_STATS_WINDOW_MS = 4 * 60 * 60 * 1000;
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
 type FixtureRow = {
   id: number;
-  api_football_fixture_id: number;
+  fotmob_id: number;
   league: string;
   kickoff_at: string;
-  home_team: { id: number; api_football_id: number; name: string };
-  away_team: { id: number; api_football_id: number; name: string };
+  home_team: { id: number; fotmob_id: number; name: string };
+  away_team: { id: number; fotmob_id: number; name: string };
 };
 
 async function findDueFixtures(supabase: Supabase, forcedFixtureId?: number): Promise<FixtureRow[]> {
   if (forcedFixtureId != null) {
     const { data, error } = await supabase
       .from('fixtures')
-      .select('id, api_football_fixture_id, league, kickoff_at, home_team:home_team_id(id, api_football_id, name), away_team:away_team_id(id, api_football_id, name)')
+      .select('id, fotmob_id, league, kickoff_at, home_team:home_team_id(id, fotmob_id, name), away_team:away_team_id(id, fotmob_id, name)')
       .eq('id', forcedFixtureId)
       .single();
     if (error) throw error;
@@ -57,9 +72,9 @@ async function findDueFixtures(supabase: Supabase, forcedFixtureId?: number): Pr
   const now = Date.now();
   const { data: fixtures, error } = await supabase
     .from('fixtures')
-    .select('id, api_football_fixture_id, league, kickoff_at, home_team:home_team_id(id, api_football_id, name), away_team:away_team_id(id, api_football_id, name)')
+    .select('id, fotmob_id, league, kickoff_at, home_team:home_team_id(id, fotmob_id, name), away_team:away_team_id(id, fotmob_id, name)')
     .neq('status', 'finished')
-    .gte('kickoff_at', new Date(now).toISOString())
+    .gte('kickoff_at', new Date(now - POST_KICKOFF_STATS_WINDOW_MS).toISOString())
     .lte('kickoff_at', new Date(now + 15 * 86400000).toISOString());
   if (error) throw error;
   if (!fixtures || fixtures.length === 0) return [];
@@ -74,7 +89,7 @@ async function findDueFixtures(supabase: Supabase, forcedFixtureId?: number): Pr
       const lastGenerated = predMap.get(f.id);
       const msToKickoff = new Date(f.kickoff_at).getTime() - now;
       const needsFull = !lastGenerated || now - new Date(lastGenerated).getTime() > FULL_RECOMPUTE_AFTER_MS;
-      const nearKickoffRecheck = msToKickoff > 0 && msToKickoff < LINEUP_WATCH_WINDOW_MS;
+      const nearKickoffRecheck = Math.abs(msToKickoff) < LINEUP_WATCH_WINDOW_MS;
       return { fixture: f, lastGenerated: lastGenerated ?? '1970-01-01', due: needsFull || nearKickoffRecheck };
     })
     .filter((x) => x.due)
@@ -84,68 +99,101 @@ async function findDueFixtures(supabase: Supabase, forcedFixtureId?: number): Pr
 }
 
 async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
-  const homeApiId = fixture.home_team.api_football_id;
-  const awayApiId = fixture.away_team.api_football_id;
+  const homeId = fixture.home_team.fotmob_id;
+  const awayId = fixture.away_team.fotmob_id;
 
-  const [homeRecentAf, awayRecentAf] = await Promise.all([getTeamRecentResults(homeApiId, 10), getTeamRecentResults(awayApiId, 10)]);
+  const [homeAllMatches, awayAllMatches] = await Promise.all([getTeamFixtures(homeId), getTeamFixtures(awayId)]);
+  const homeRecentMatches = mostRecentFinished(homeAllMatches, 10);
+  const awayRecentMatches = mostRecentFinished(awayAllMatches, 10);
 
   await Promise.all([
-    cacheTeamRecentResults(supabase, fixture.home_team.id, homeApiId, homeRecentAf).catch(() => {}),
-    cacheTeamRecentResults(supabase, fixture.away_team.id, awayApiId, awayRecentAf).catch(() => {}),
+    cacheTeamRecentResultsFm(supabase, fixture.home_team.id, homeId, homeRecentMatches).catch(() => {}),
+    cacheTeamRecentResultsFm(supabase, fixture.away_team.id, awayId, awayRecentMatches).catch(() => {}),
   ]);
 
-  const homeRecent = mapRecentResults(homeRecentAf, homeApiId);
-  const awayRecent = mapRecentResults(awayRecentAf, awayApiId);
+  // Best-effort xG enrichment: only fixtures we've personally tracked
+  // before have cached match_stats, so this is sparse at first and fills in
+  // over time as more of a team's matches pass through this same pipeline.
+  const candidateFotmobIds = [...homeRecentMatches, ...awayRecentMatches].map((m) => m.id);
+  const xgByFotmobMatchId = new Map<number, { home: number; away: number }>();
+  if (candidateFotmobIds.length > 0) {
+    const { data: cachedFixtures } = await supabase.from('fixtures').select('id, fotmob_id').in('fotmob_id', candidateFotmobIds);
+    const fixtureIdToFotmobId = new Map((cachedFixtures ?? []).map((f) => [f.id, f.fotmob_id as number]));
+    if (fixtureIdToFotmobId.size > 0) {
+      const { data: statRows } = await supabase
+        .from('match_stats')
+        .select('fixture_id, home_value, away_value')
+        .in('fixture_id', [...fixtureIdToFotmobId.keys()])
+        .eq('stat_key', 'expected_goals');
+      for (const row of statRows ?? []) {
+        const fotmobId = fixtureIdToFotmobId.get(row.fixture_id);
+        const home = Number(row.home_value);
+        const away = Number(row.away_value);
+        if (fotmobId && Number.isFinite(home) && Number.isFinite(away)) xgByFotmobMatchId.set(fotmobId, { home, away });
+      }
+    }
+  }
 
-  const h2hAf = await getHeadToHead(homeApiId, awayApiId, 5).catch(() => []);
-  const h2hForModel = alignH2hForModel(h2hAf, homeApiId);
-  const h2hLetters = h2hResultLetters(h2hAf, homeApiId);
-  await supabase.from('fixtures').update({ quick_h2h_detail: h2hDetailRows(h2hAf) }).eq('id', fixture.id);
+  const homeRecent = attachXgFm(mapRecentResultsFm(homeRecentMatches, homeId), homeRecentMatches, homeId, xgByFotmobMatchId);
+  const awayRecent = attachXgFm(mapRecentResultsFm(awayRecentMatches, awayId), awayRecentMatches, awayId, xgByFotmobMatchId);
 
-  const lineupsAf = await getLineups(fixture.api_football_fixture_id).catch(() => [] as AfLineup[]);
-  if (lineupsAf.length > 0) {
+  const details = await getMatchDetails(fixture.fotmob_id);
+
+  const h2h = getHeadToHead(details);
+  const h2hForModel = alignH2hForModelFm(h2h, fixture.home_team.name);
+  const h2hLetters = h2hResultLettersFm(h2h, fixture.home_team.name);
+  await supabase.from('fixtures').update({ quick_h2h_detail: h2hDetailRowsFm(h2h) }).eq('id', fixture.id);
+
+  const lineups = getLineups(details);
+  if (lineups) {
     // Official lineup just landed - clear out our own guess so the UI shows
     // the real thing instead of a stale estimate sitting alongside it.
     await supabase.from('lineups').delete().eq('fixture_id', fixture.id).eq('source', 'estimated');
-    for (const l of lineupsAf) {
-      const teamRowId = l.team.id === homeApiId ? fixture.home_team.id : fixture.away_team.id;
-      await upsertPlayerAndLineup(supabase, fixture.id, teamRowId, l, 'confirmed').catch(() => {});
-    }
-    const homeFormation = lineupsAf.find((l) => l.team.id === homeApiId)?.formation ?? null;
-    const awayFormation = lineupsAf.find((l) => l.team.id === awayApiId)?.formation ?? null;
+    await upsertPlayerAndLineupFm(supabase, fixture.id, fixture.home_team.id, lineups.home, 'confirmed').catch(() => {});
+    await upsertPlayerAndLineupFm(supabase, fixture.id, fixture.away_team.id, lineups.away, 'confirmed').catch(() => {});
     await supabase
       .from('fixtures')
-      .update({ home_formation: homeFormation, away_formation: awayFormation })
+      .update({ home_formation: lineups.home.formation ?? null, away_formation: lineups.away.formation ?? null })
       .eq('id', fixture.id);
   }
 
-  let lineupOverlapRatio: number | null = null;
-  let playerNotes: ReturnType<typeof computePlayerMeetingNotes> = [];
-  if (lineupsAf.length > 0 && h2hAf.length > 0) {
-    const sortedH2h = [...h2hAf].sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime());
-    const lastH2h = sortedH2h[0];
-    try {
-      const lastH2hLineups = await getLineups(lastH2h.fixture.id);
-      if (lastH2hLineups.length > 0) {
-        const pastFixtureRowId = await ensureFixtureRow(supabase, lastH2h, fixture.league);
-        for (const l of lastH2hLineups) {
-          const teamRowId = l.team.id === homeApiId ? fixture.home_team.id : fixture.away_team.id;
-          await upsertPlayerAndLineup(supabase, pastFixtureRowId, teamRowId, l, 'confirmed').catch(() => {});
-        }
-        lineupOverlapRatio = computeLineupOverlapRatio(lineupsAf, lastH2hLineups);
-        playerNotes = computePlayerMeetingNotes(lineupsAf, lastH2hLineups, lastH2h.fixture.date, h2hLetters[0] ?? 'D');
-      }
-    } catch {
-      // Lineup data for older fixtures isn't always available — that's fine,
-      // player-meeting notes just stay empty for this run.
-    }
+  // Match stats (xG, shots, possession, ...) only exist once the game has
+  // started — no-op before kickoff, filled in naturally by a later run
+  // thanks to POST_KICKOFF_STATS_WINDOW_MS keeping this fixture "due" for a
+  // while after its scheduled kickoff.
+  const stats = getMatchStats(details);
+  if (stats.length > 0) {
+    // Dedupe by stat_key: FotMob's stat sections aren't guaranteed disjoint
+    // (e.g. the same key could appear under both a "Top stats" summary
+    // section and its detailed category) — a batch upsert with a repeated
+    // conflict target in one statement fails outright ("ON CONFLICT DO
+    // UPDATE command cannot affect row a second time"), so keep only the
+    // first occurrence of each key.
+    const byKey = new Map(stats.map((s) => [s.key, s]));
+    const rows = [...byKey.values()].map((s) => ({
+      fixture_id: fixture.id,
+      stat_key: s.key,
+      stat_title: s.title,
+      home_value: s.home,
+      away_value: s.away,
+      stat_type: s.type ?? null,
+      fetched_at: new Date().toISOString(),
+    }));
+    const { error: statsError } = await supabase.from('match_stats').upsert(rows, { onConflict: 'fixture_id,stat_key' });
+    if (statsError) throw new Error(`match_stats upsert failed: ${statsError.message}`);
   }
+
+  // Player-meeting cross-reference (computePlayerMeetingNotesFm) needs the
+  // most recent H2H meeting's own lineup, which needs that match's own
+  // FotMob matchId — but FmH2hMatch (from content.h2h.matches) doesn't
+  // expose one, only team/score/date. There's no confirmed cheap way to
+  // resolve it, so this feature is dropped rather than guessed at (flagged
+  // as an accepted capability loss in the migration plan doc).
+  const lineupOverlapRatio: number | null = null;
+  const playerNotes: PlayerNote[] = [];
 
   const h2hWeight = lineupOverlapRatio != null ? 0.05 + 0.1 * lineupOverlapRatio : 0.1;
   const stat = runPoissonModel({ homeRecent, awayRecent, h2h: h2hForModel, h2hWeight });
-
-  const homeLineup = lineupsAf.find((l) => l.team.id === homeApiId);
-  const awayLineup = lineupsAf.find((l) => l.team.id === awayApiId);
 
   let gpt;
   try {
@@ -157,8 +205,8 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
       homeFormSummary: formSummaryText(homeRecent, fixture.home_team.name),
       awayFormSummary: formSummaryText(awayRecent, fixture.away_team.name),
       h2hSummary: h2hLetters.length ? `최근 ${h2hLetters.length}회 맞대결 (홈팀 기준, 최신순): ${h2hLetters.join(', ')}` : '최근 맞대결 기록 없음',
-      homeLineupSummary: lineupSummaryText(homeLineup, fixture.home_team.name),
-      awayLineupSummary: lineupSummaryText(awayLineup, fixture.away_team.name),
+      homeLineupSummary: lineupSummaryTextFm(lineups?.home, fixture.home_team.name),
+      awayLineupSummary: lineupSummaryTextFm(lineups?.away, fixture.away_team.name),
     });
   } catch (e) {
     // If GPT is unavailable for any reason, fall back to the stat model
@@ -184,7 +232,13 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
     gptProbs: { home: gpt.probHome, draw: gpt.probDraw, away: gpt.probAway },
   });
 
-  const bookOdds = await getAverageMatchWinnerOdds(fixture.api_football_fixture_id).catch(() => null);
+  let bookOdds: { home: number; draw: number; away: number } | null = null;
+  try {
+    bookOdds = await getMatchOdds1xBet(fixture.fotmob_id);
+  } catch {
+    // 1xBet odds are best-effort and isolated — a failure here must never
+    // fail the rest of the prediction.
+  }
   const toDecimalOdds = (probPct: number) => (probPct > 0 ? Math.round((100 / probPct) * 100) / 100 : null);
 
   const { error } = await supabase.from('predictions').upsert(

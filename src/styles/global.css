@@ -43,6 +43,7 @@
 .tname { font-size: 12px; font-weight: 600; color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .score { font-family: var(--font-display); font-size: 34px; color: var(--fg); letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; }
 .score .dash { color: var(--fg-3); font-size: 20px; }
+.score-predicted-sub { text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); margin-top: 2px; }
 
 .probbar { display: flex; height: 6px; border-radius: var(--radius-full); overflow: hidden; background: var(--bg-elevated); margin-bottom: 6px; }
 .probseg { height: 100%; transition: width var(--duration-normal) var(--ease-out); }
@@ -102,6 +103,12 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
 .standings-table tr:first-child td { border-top: none; }
 .standings-table tr.standings-highlight td { color: var(--color-accent); font-weight: 700; }
 
+.match-stats-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.match-stats-table td { padding: 7px 0; border-top: 1px solid var(--border-subtle); }
+.match-stats-table tr:first-child td { border-top: none; }
+.match-stats-table .match-stats-value { width: 56px; text-align: center; font-family: var(--font-mono); color: var(--fg-1); font-weight: 600; }
+.match-stats-table .match-stats-label { text-align: center; color: var(--fg-3); font-size: 11px; }
+
 .admin-page { padding-top: var(--space-10); padding-bottom: var(--space-16); }
 .admin-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); }
 .admin-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--fg-3); }
@@ -147,6 +154,11 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
   pointer-events: none;
 }
 .pitch-row { display: flex; justify-content: space-around; gap: var(--space-2); }
+
+.pitch-field-coords { height: 420px; padding: 0; }
+.pitch-field-coords::before { display: none; }
+.pitch-coord-dot { position: absolute; transform: translate(-50%, -50%); }
+.pitch-coord-dot .player-avatar { width: 60px; }
 .player-avatar { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 72px; }
 .player-photo { position: relative; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.5); display: flex; align-items: center; justify-content: center; }
 .player-photo img { width: 100%; height: 100%; object-fit: cover; }

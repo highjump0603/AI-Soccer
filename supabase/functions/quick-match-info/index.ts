@@ -2,23 +2,24 @@
 // bookmaker odds for a single fixture so the match detail page has
 // something to show (venue/h2h/odds) while the full AI prediction is
 // still queued. Called from the client when a viewer opens a match that
-// has no prediction yet — NOT on a cron, so it only spends API-Football
-// quota on fixtures someone actually looked at.
+// has no prediction yet — NOT on a cron, so it only spends quota on
+// fixtures someone actually looked at.
 //
 // Cached on the fixtures row (quick_info_fetched_at) so repeated views
 // within CACHE_TTL_MS don't re-hit the API.
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
-import { getHeadToHead, getAverageMatchWinnerOdds } from '../_shared/apiFootball.ts';
-import { h2hResultLetters, h2hDetailRows } from '../_shared/matchMapping.ts';
+import { getMatchDetails, getHeadToHead, getMatchOdds1xBet } from '../_shared/fotmob.ts';
+import { h2hResultLettersFm, h2hDetailRowsFm } from '../_shared/matchMapping.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 type FixtureRow = {
   id: number;
-  api_football_fixture_id: number;
-  home_team: { api_football_id: number };
-  away_team: { api_football_id: number };
+  fotmob_id: number;
+  kickoff_at: string;
+  home_team: { name: string };
+  away_team: { name: string };
   quick_h2h: string[];
   quick_h2h_detail: unknown[];
   quick_odds_home: number | null;
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
   const { data, error } = await supabase
     .from('fixtures')
     .select(
-      'id, api_football_fixture_id, home_team:home_team_id(api_football_id), away_team:away_team_id(api_football_id), quick_h2h, quick_h2h_detail, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at'
+      'id, fotmob_id, kickoff_at, home_team:home_team_id(name), away_team:away_team_id(name), quick_h2h, quick_h2h_detail, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at'
     )
     .eq('id', fixtureId)
     .single();
@@ -77,15 +78,13 @@ Deno.serve(async (req) => {
     );
   }
 
-  const homeApiId = fixture.home_team.api_football_id;
-  const awayApiId = fixture.away_team.api_football_id;
-
-  const [h2hAf, odds] = await Promise.all([
-    getHeadToHead(homeApiId, awayApiId, 5).catch(() => []),
-    getAverageMatchWinnerOdds(fixture.api_football_fixture_id).catch(() => null),
+  const [details, odds] = await Promise.all([
+    getMatchDetails(fixture.fotmob_id).catch(() => null),
+    getMatchOdds1xBet(fixture.fotmob_id).catch(() => null),
   ]);
-  const h2hLetters = h2hResultLetters(h2hAf, homeApiId);
-  const h2hDetail = h2hDetailRows(h2hAf);
+  const h2h = details ? getHeadToHead(details) : [];
+  const h2hLetters = h2hResultLettersFm(h2h, fixture.home_team.name);
+  const h2hDetail = h2hDetailRowsFm(h2h);
 
   const { error: updateError } = await supabase
     .from('fixtures')
@@ -95,6 +94,7 @@ Deno.serve(async (req) => {
       quick_odds_home: odds?.home ?? null,
       quick_odds_draw: odds?.draw ?? null,
       quick_odds_away: odds?.away ?? null,
+      quick_odds_source: odds ? '1xbet' : null,
       quick_info_fetched_at: new Date().toISOString(),
     })
     .eq('id', fixtureId);
