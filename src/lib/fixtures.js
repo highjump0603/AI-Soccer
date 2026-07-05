@@ -39,6 +39,7 @@ function rowToMatch(row) {
     score: p ? { home: p.final_score_home, away: p.final_score_away } : null,
     prob: p ? { home: round1(p.final_prob_home), draw: round1(p.final_prob_draw), away: round1(p.final_prob_away) } : null,
     confidence: p?.confidence ?? null,
+    confidencePct: p?.confidence_pct != null ? round1(p.confidence_pct) : null,
     factors: p?.factors ?? [],
     h2h: p?.h2h ?? row.quick_h2h ?? [],
     h2hDetail: row.quick_h2h_detail ?? [],
@@ -202,6 +203,40 @@ export async function fetchStandings(fotmobLeagueId) {
 // afterward to pick up any new rows.
 export async function triggerFetchStandings(fotmobLeagueId) {
   const { data, error } = await supabase.functions.invoke('fetch-standings', { body: { fotmob_league_id: fotmobLeagueId } });
+  if (error) throw error;
+  return data;
+}
+
+// Tracked teams, for the admin backtest picker.
+export async function listTeams() {
+  const { data, error } = await supabase.from('teams').select('id, name').order('name', { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+// Runs the real prediction pipeline against a team's last `count` already-
+// finished matches, using only data from before each match's own kickoff,
+// and stores the comparison against the real result in `backtest_results`.
+export async function runBacktestForTeam(teamId, count = 5) {
+  const { data, error } = await supabase.functions.invoke('backtest', { body: { teamId, count } });
+  if (error) throw error;
+  return data;
+}
+
+export async function runBacktestForMatch(fotmobMatchId) {
+  const { data, error } = await supabase.functions.invoke('backtest', { body: { matchId: fotmobMatchId } });
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchBacktestResults(limit = 30) {
+  const { data, error } = await supabase
+    .from('backtest_results')
+    .select(
+      'id, fotmob_match_id, league, home_team_name, away_team_name, kickoff_at, predicted_prob_home, predicted_prob_draw, predicted_prob_away, predicted_score_home, predicted_score_away, actual_score_home, actual_score_away, outcome_correct, score_correct, factors, analysis, run_at'
+    )
+    .order('run_at', { ascending: false })
+    .limit(limit);
   if (error) throw error;
   return data;
 }
