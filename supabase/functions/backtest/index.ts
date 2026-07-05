@@ -184,6 +184,17 @@ Deno.serve(async (req) => {
 
       const resolvedFixtures = requestedLeague ? matchingFixtures : normalizedFixtures;
 
+      if (resolvedFixtures.length === 0) {
+        return new Response(JSON.stringify({
+          ok: true,
+          processed: 0,
+          results: {},
+          message: `선택한 리그/시즌(${body.league}/${seasonYear})에 종료된 경기 데이터가 아직 없습니다. 리그 동기화를 다시 실행하거나 다른 시즌을 선택해 주세요.`,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       for (const fixture of resolvedFixtures.slice(0, body.count ?? 5)) {
         if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
         targets.push({
