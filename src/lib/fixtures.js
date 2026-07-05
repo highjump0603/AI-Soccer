@@ -231,9 +231,12 @@ export async function clearBacktestResults() {
 }
 
 export async function listBacktestLeagues() {
+  const fallbackLeagues = ['프리미어리그', 'EPL', '라리가', 'La Liga', '분데스리가', 'Bundesliga', '세리에A', 'Serie A', '리그앙', 'Ligue 1', 'K리그1', '월드컵', 'World Cup'];
   const { data, error } = await supabase.from('fixtures').select('league').not('league', 'is', null).order('league', { ascending: true });
   if (error) throw error;
-  return [...new Set((data ?? []).map((row) => row.league).filter(Boolean))];
+
+  const fromFixtures = (data ?? []).map((row) => row.league).filter(Boolean);
+  return [...new Set([...fallbackLeagues, ...fromFixtures])].sort((a, b) => a.localeCompare(b, 'ko'));
 }
 
 export async function fetchBacktestResults(limit) {
