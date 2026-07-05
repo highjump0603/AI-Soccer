@@ -52,17 +52,35 @@ function resolveTrackedLeagueId(league: string | null | undefined) {
   return match?.id ?? null;
 }
 
+function formatFotmobDate(date: Date) {
+  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
 async function collectFotmobMatchesForLeagueSeason(league: string | null | undefined, season: number, count: number): Promise<BacktestTarget[]> {
   const leagueId = resolveTrackedLeagueId(league);
   if (!leagueId) return [];
 
-  const startDate = new Date(Date.UTC(season, 7, 1));
-  const endDate = new Date(Date.UTC(season + 1, 5, 30));
+  const seasonStart = new Date(Date.UTC(Math.max(2020, season - 1), 6, 1));
+  const seasonEnd = new Date(Date.UTC(season, 6, 30));
+  const datesToTry: string[] = [];
+  const seenDates = new Set<string>();
+
+  for (let cursor = new Date(seasonStart); cursor <= seasonEnd; cursor.setUTCMonth(cursor.getUTCMonth() + 1)) {
+    const firstOfMonth = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1));
+    const midMonth = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 15));
+    for (const date of [firstOfMonth, midMonth]) {
+      const dateStr = formatFotmobDate(date);
+      if (!seenDates.has(dateStr)) {
+        seenDates.add(dateStr);
+        datesToTry.push(dateStr);
+      }
+    }
+  }
+
   const candidates: BacktestTarget[] = [];
   const seen = new Set<number>();
 
-  for (let cursor = new Date(startDate); cursor <= endDate; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    const dateStr = `${cursor.getUTCFullYear()}${String(cursor.getUTCMonth() + 1).padStart(2, '0')}${String(cursor.getUTCDate()).padStart(2, '0')}`;
+  for (const dateStr of datesToTry) {
     const matches = await getFixturesByDate(dateStr);
     for (const m of matches) {
       if (m.id && !seen.has(m.id) && (m.primaryLeagueId === leagueId || m.leagueId === leagueId)) {

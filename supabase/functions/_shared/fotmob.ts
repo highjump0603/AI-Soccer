@@ -93,10 +93,10 @@ export type FmMatch = {
 // fixture-discovery endpoint (replaces API-Football's getFixturesByDate).
 // dateStr must be FotMob's own YYYYMMDD format, not ISO YYYY-MM-DD.
 export async function getFixturesByDate(dateStr: string): Promise<FmMatch[]> {
-  const json = (await fmGet('/matches', { date: dateStr })) as {
+  const json = (await fmGet('/matches', { date: dateStr }).catch(() => null)) as {
     leagues?: { id: number; primaryId?: number; matches?: FmMatch[] }[];
-  };
-  const leagues = json.leagues ?? [];
+  } | null;
+  const leagues = json?.leagues ?? [];
   return leagues.flatMap((l) =>
     (l.matches ?? []).map((m) => ({ ...m, leagueId: m.leagueId ?? l.id, primaryLeagueId: l.primaryId ?? l.id }))
   );

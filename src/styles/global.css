@@ -146,7 +146,7 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
 .mini-btn.danger:hover { border-color: var(--color-error); color: var(--color-error); }
 .backtest-pagination { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: var(--space-4); flex-wrap: wrap; }
 .backtest-pagination__status { font-size: 13px; color: var(--fg-3); min-width: 56px; text-align: center; }
-.backtest-analysis-cell { max-width: 360px; white-space: normal; overflow-wrap: anywhere; word-break: keep-all; line-height: 1.5; }
+.backtest-analysis-cell { max-width: 360px; white-space: normal; overflow-wrap: anywhere; word-break: keep-all; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .backtest-score-cell { display: flex; flex-direction: column; gap: 3px; min-width: 132px; }
 .backtest-score-cell strong { font-weight: 700; color: var(--fg-1); }
 .backtest-score-cell span { font-size: 11px; color: var(--fg-3); line-height: 1.4; }

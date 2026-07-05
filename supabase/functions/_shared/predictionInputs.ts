@@ -29,6 +29,45 @@ type Supabase = ReturnType<typeof getSupabaseAdmin>;
 
 const RECENT_MATCH_COUNT = 10;
 
+function logFactorial(n: number) {
+  if (n <= 1) return 0;
+  let sum = 0;
+  for (let i = 2; i <= n; i += 1) sum += Math.log(i);
+  return sum;
+}
+
+function poissonProbability(mean: number, k: number) {
+  if (mean <= 0) return k === 0 ? 1 : 0;
+  const logP = k * Math.log(mean) - mean - logFactorial(k);
+  return Math.exp(logP);
+}
+
+function buildScoreSimulationHint(homeRecent: RecentResult[], awayRecent: RecentResult[]) {
+  const homeAttack = averageGoalsFor(homeRecent, 'home');
+  const homeConcede = averageGoalsAgainst(homeRecent, 'home');
+  const awayAttack = averageGoalsFor(awayRecent, 'away');
+  const awayConcede = averageGoalsAgainst(awayRecent, 'away');
+
+  const homeMean = Math.max(0.2, (homeAttack + awayConcede) / 2 + 0.15);
+  const awayMean = Math.max(0.2, (awayAttack + homeConcede) / 2);
+  const strengthGap = homeMean - awayMean;
+
+  const candidates: Array<{ home: number; away: number; p: number }> = [];
+  for (let homeGoals = 0; homeGoals <= 4; homeGoals += 1) {
+    for (let awayGoals = 0; awayGoals <= 4; awayGoals += 1) {
+      const p = poissonProbability(homeMean, homeGoals) * poissonProbability(awayMean, awayGoals);
+      candidates.push({ home: homeGoals, away: awayGoals, p });
+    }
+  }
+
+  candidates.sort((a, b) => b.p - a.p);
+  const top = candidates.slice(0, 6);
+  const topScores = top.map((c) => `${c.home}-${c.away}`).join(', ');
+  const bias = strengthGap > 0.35 ? '홈 우세' : strengthGap < -0.35 ? '원정 우세' : '대등';
+
+  return `수치 시뮬레이션 기준: 홈 기대득점 ${homeMean.toFixed(2)}, 원정 기대득점 ${awayMean.toFixed(2)}; 홈 평균 득점 ${homeAttack.toFixed(2)}, 홈 평균 실점 ${homeConcede.toFixed(2)}; 원정 평균 득점 ${awayAttack.toFixed(2)}, 원정 평균 실점 ${awayConcede.toFixed(2)}; 세력 차이 ${bias}. 후보 스코어 ${topScores}.`;
+}
+
 function beforeCutoff(m: FmMatch, cutoffMs: number) {
   return m.status?.finished && m.status?.utcTime && new Date(m.status.utcTime).getTime() < cutoffMs;
 }
@@ -159,6 +198,7 @@ export async function gatherPredictionInputs(
   const awayFormationUsed = lineups?.away.formation ?? params.awayFormationFallback ?? null;
   const homeUnavailable = lineups?.home.unavailable ?? [];
   const awayUnavailable = lineups?.away.unavailable ?? [];
+  const scoreSimulationHint = buildScoreSimulationHint(homeRecent, awayRecent);
 
   let homeStandingNote = `${params.homeTeamName}: 순위 정보 없음`;
   let awayStandingNote = `${params.awayTeamName}: 순위 정보 없음`;
@@ -181,6 +221,13 @@ export async function gatherPredictionInputs(
   // report so it doesn't get mistaken for a more-informed prediction than
   // it actually is.
 
+  const matchContextSummary = [
+    `${params.homeTeamName}: ${homeStandingNote}; ${formSummaryText(homeRecent, params.homeTeamName)}; ${lineupSummaryTextFm(lineups?.home, params.homeTeamName)}; 전술 ${homeFormationUsed ?? '알 수 없음'}; ${restNote(homeRecentMatches, params.kickoffAt, params.homeTeamName)}; ${discipline(homeRecentMatches, params.homeFotmobId, params.homeTeamName)};`,
+    `${params.awayTeamName}: ${awayStandingNote}; ${formSummaryText(awayRecent, params.awayTeamName)}; ${lineupSummaryTextFm(lineups?.away, params.awayTeamName)}; 전술 ${awayFormationUsed ?? '알 수 없음'}; ${restNote(awayRecentMatches, params.kickoffAt, params.awayTeamName)}; ${discipline(awayRecentMatches, params.awayFotmobId, params.awayTeamName)};`,
+    `최근 맞대결: ${h2hLetters.length ? `${h2hLetters.length}회 (${h2hLetters.join(', ')})` : '기록 없음'}`,
+    `참고 기대득점: 홈 ${homeXgRef.toFixed(2)} / 원정 ${awayXgRef.toFixed(2)}`,
+  ].join(' ');
+
   const gptInput: GptPredictionInput = {
     league: params.league,
     homeTeam: params.homeTeamName,
@@ -200,6 +247,8 @@ export async function gatherPredictionInputs(
     homeStandingNote,
     awayStandingNote,
     referenceXg: `홈 ${homeXgRef.toFixed(2)} / 원정 ${awayXgRef.toFixed(2)}`,
+    matchContextSummary,
+    scoreSimulationHint,
   };
 
   return {

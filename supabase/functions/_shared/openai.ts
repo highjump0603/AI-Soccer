@@ -49,6 +49,8 @@ export type GptPredictionInput = {
   homeStandingNote: string;
   awayStandingNote: string;
   referenceXg: string;
+  matchContextSummary: string;
+  scoreSimulationHint: string;
 };
 
 export type GptPrediction = {
@@ -103,13 +105,20 @@ ${input.awayLineupSummary}
 [참고용 기대득점 (최근 득점력/실점력 기반 참고치, 그대로 따를 필요는 없음)]
 ${input.referenceXg}
 
-위 모든 요소(포메이션, 라인업, 피로도, 카드/징계, 맞대결, 각 팀의 최근 폼과 순위, 기대득점)를 근거로 삼아 최종 스코어와 확률을 예측하세요.
+[경기 맥락 요약]
+${input.matchContextSummary}
+
+[점수 시뮬레이션 기준]
+${input.scoreSimulationHint}
+
+이 예측은 실제 경기 전 분석용 데이터입니다. 승/무/패 확률과 스코어는 단순히 확률을 나누어 만든 값이 아니라, 선발 라인업·부상·피로·카드·전술·최근 폼·상대 전적·기대득점·리그 순위까지 종합한 경기 맥락을 바탕으로 도출해야 합니다. 특히 점수는 기대득점과 기대 실점 평균, 세력 차이, 경기 맥락을 반영한 시뮬레이션 결과처럼 설정하세요.
 
 중요한 규칙:
 1. 확률 3개의 합은 반드시 100이 되어야 합니다.
 2. score_home/score_away는 반드시 확률 분포와 논리적으로 일치해야 합니다 — 예를 들어 prob_draw가 가장 높거나 다른 두 확률과 비슷하게 근소하다면 score_home과 score_away는 반드시 같아야 합니다(무승부 스코어). prob_away가 가장 높다면 score_away > score_home이어야 합니다.
-3. 실전 축구 스코어는 매우 다양합니다(0-0, 1-0, 1-1, 2-0, 2-1, 2-2, 3-1, 0-1 등). 두 팀 모두 최근 득점력이 낮으면 저득점 스코어(0-0, 1-0)를, 대등한 팀끼리는 무승부(1-1, 0-0, 2-2)를, 한쪽이 확실히 우세하면 그 격차에 맞는 스코어를 예측하세요. 근거 없이 "2-1" 같은 무난한 스코어로 습관적으로 수렴하지 마세요 — 반드시 위에 주어진 실제 데이터(득점력, 실점력, 기대득점)에 비례하는 스코어를 계산해서 내세요.
-4. factors에는 실제로 이 예측에 영향을 준 구체적인 근거(예: 포메이션 상성, 피로 누적, 카드 누적으로 인한 결장 위험, 순위 격차 등)를 담아주세요.`;
+3. 실전 축구 스코어는 매우 다양합니다(0-0, 1-0, 1-1, 2-0, 2-1, 2-2, 3-1, 0-1 등). 점수는 기대득점/실점 평균과 세력 차이를 바탕으로 한 시뮬레이션처럼 설정하세요. 즉, 낮은 기대득점이면 0-0, 1-0, 1-1 같은 저득점 스코어를, 공격력이 강하고 수비가 약하면 2-0, 3-1, 3-2 같은 스코어를, 대등한 경기면 1-1 또는 0-0/2-2 같은 결과를 우선적으로 고려하세요. 절대 "2-1" 같은 무난한 기본값으로만 수렴하지 마세요.
+4. 예측 가중치 우선순위는 다음 순서로 생각하세요: ① 선발 라인업/핵심 선수 부재/전술 ② 최근 폼과 득점력·실점력 ③ 휴식·피로·카드 ④ 상대 전적 ⑤ 리그 순위. 즉, 순위만 보고 예측하지 말고, 실제 경기에서 결정적인 변수로 작용할 수 있는 요소를 더 크게 반영하세요.
+5. factors에는 실제로 이 예측에 영향을 준 구체적인 근거(예: 포메이션 상성, 피로 누적, 카드 누적으로 인한 결장 위험, 순위 격차, 핵심 선수 부재, 최근 득점력/실점력 차이 등)를 담아주세요.`;
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -124,7 +133,7 @@ ${input.referenceXg}
         { role: 'user', content: prompt },
       ],
       response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
-      temperature: 0.4,
+      temperature: 0.25,
     }),
   });
 
@@ -154,6 +163,39 @@ ${input.referenceXg}
 // inputs could be weighted differently next time. Deliberately a plain-text
 // call (not the strict prediction schema) since this is a qualitative
 // retrospective, not another prediction.
+function normalizeBacktestAnalysis(raw: string): string {
+  if (!raw) return '';
+
+  const collapsed = raw.replace(/\s+/g, ' ').trim();
+  if (!collapsed) return '';
+
+  const sentences = collapsed
+    .split(/[.!?](?:\s+|$)/)
+    .map((s) => s.replace(/^[\s\-–—]+|[\s\-–—]+$/g, '').trim())
+    .filter(Boolean);
+
+  const unique: string[] = [];
+  for (const sentence of sentences) {
+    const normalizedSentence = sentence.replace(/\s+/g, ' ').trim();
+    if (!normalizedSentence) continue;
+    const last = unique[unique.length - 1];
+    if (last?.replace(/\s+/g, ' ').trim().toLowerCase() !== normalizedSentence.toLowerCase()) {
+      unique.push(normalizedSentence);
+    }
+  }
+
+  const first = unique[0] ?? collapsed;
+  const second = unique[1] ?? '';
+  const combined = `${first}${second ? ` ${second}` : ''}`;
+  const compact = combined.replace(/(다\.)\s+/g, '$1 ').replace(/\s+/g, ' ').trim();
+
+  if (compact.length > 180) {
+    return `${compact.slice(0, 177).trimEnd()}...`;
+  }
+
+  return compact;
+}
+
 export async function getBacktestAnalysis(input: {
   homeTeam: string;
   awayTeam: string;
@@ -177,7 +219,7 @@ export async function getBacktestAnalysis(input: {
 실제 결과: ${input.actualScore.home}-${input.actualScore.away} (${actualOutcome})
 승부 결과 적중 여부: ${outcomeCorrect ? '적중' : '실패'}
 
-이 예측이 왜 맞았는지 혹은 왜 틀렸는지 2~3문장으로 분석하고, 다음에 비슷한 상황에서 예측 정확도를 높이려면 어떤 데이터에 더/덜 가중치를 둬야 할지 한 문장으로 제안해주세요. 한국어로, 구체적으로 답하세요.`;
+이 예측이 왜 맞았는지 혹은 왜 틀렸는지 한 문장으로 짧고 구체적으로 분석하고, 다음 예측에서 어떤 데이터에 더/덜 가중치를 둬야 할지 한 문장으로만 제안해주세요. 한국어로, 중복 없이 아주 짧게 답하세요.`;
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -195,5 +237,5 @@ export async function getBacktestAnalysis(input: {
   const json = await res.json();
   const content = json.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenAI response had no content.');
-  return content.trim();
+  return normalizeBacktestAnalysis(content);
 }
