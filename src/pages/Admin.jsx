@@ -363,24 +363,63 @@ function BacktestSummary({ results }) {
   const outcomeHits = results.filter((r) => r.outcome_correct).length;
   const scoreHits = results.filter((r) => r.score_correct).length;
   const pct = (n) => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+  const getTopConfidence = (r) => {
+    const probs = [Number(r.predicted_prob_home) || 0, Number(r.predicted_prob_draw) || 0, Number(r.predicted_prob_away) || 0];
+    return Math.max(...probs);
+  };
+
+  const bands = [
+    { label: '높음 (70%+)', min: 70, max: 100 },
+    { label: '중간 (50~69%)', min: 50, max: 69.999 },
+    { label: '낮음 (50% 미만)', min: 0, max: 49.999 },
+  ];
+
+  const bandStats = bands.map((band) => {
+    const matches = results.filter((r) => {
+      const top = getTopConfidence(r);
+      return top >= band.min && top <= band.max;
+    });
+    const hits = matches.filter((r) => r.outcome_correct).length;
+    return {
+      ...band,
+      total: matches.length,
+      hitRate: matches.length > 0 ? pct(hits) : 0,
+      hits,
+    };
+  });
+
   return (
-    <div className="stat-row" style={{ marginBottom: 'var(--space-6)' }}>
-      <div className="stat-cell">
-        <div className="stat-num">{total}</div>
-        <div className="stat-label">백테스트 경기 수</div>
-      </div>
-      <div className="stat-cell">
-        <div className="stat-num">{pct(outcomeHits)}%</div>
-        <div className="stat-label">
-          승부 적중률 ({outcomeHits}/{total})
+    <>
+      <div className="stat-row" style={{ marginBottom: 'var(--space-6)' }}>
+        <div className="stat-cell">
+          <div className="stat-num">{total}</div>
+          <div className="stat-label">백테스트 경기 수</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-num">{pct(outcomeHits)}%</div>
+          <div className="stat-label">
+            승부 적중률 ({outcomeHits}/{total})
+          </div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-num">{pct(scoreHits)}%</div>
+          <div className="stat-label">
+            정확한 스코어 적중률 ({scoreHits}/{total})
+          </div>
         </div>
       </div>
-      <div className="stat-cell">
-        <div className="stat-num">{pct(scoreHits)}%</div>
-        <div className="stat-label">
-          정확한 스코어 적중률 ({scoreHits}/{total})
-        </div>
+
+      <div className="stat-row" style={{ marginBottom: 'var(--space-8)' }}>
+        {bandStats.map((band) => (
+          <div className="stat-cell" key={band.label}>
+            <div className="stat-num">{band.total > 0 ? `${band.hitRate}%` : '—'}</div>
+            <div className="stat-label">
+              {band.label} ({band.hits}/{band.total})
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+    </>
   );
 }
