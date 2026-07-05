@@ -142,6 +142,7 @@ Deno.serve(async (req) => {
         .limit(body.count ?? 5);
       if (error) throw error;
       for (const fixture of fixtures ?? []) {
+        if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
         targets.push({
           id: fixture.fotmob_id,
           leagueId: 0,
@@ -166,6 +167,12 @@ Deno.serve(async (req) => {
   }
 
   const results: Record<string, string> = {};
+  if (targets.length === 0) {
+    return new Response(JSON.stringify({ ok: true, processed: 0, results, message: 'No matching finished fixtures were found for the selected league/season.' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   for (const m of targets) {
     const label = `${m.home.name} vs ${m.away.name} (${m.id})`;
     try {
