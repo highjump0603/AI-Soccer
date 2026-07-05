@@ -28,6 +28,8 @@ dist-ssr
 *.sw?
 supabase/.env
 supabase/.env.*
+supabase/.temp
 *.secrets
 .vercel
 .env*
+.claude
