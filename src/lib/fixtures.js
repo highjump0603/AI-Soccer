@@ -27,6 +27,7 @@ function rowToMatch(row) {
     venue: row.venue,
     home: { id: row.home_team.id, fotmobId: row.home_team.fotmob_id, name: row.home_team.name, logoUrl: row.home_team.logo_url },
     away: { id: row.away_team.id, fotmobId: row.away_team.fotmob_id, name: row.away_team.name, logoUrl: row.away_team.logo_url },
+    season: row.season ?? null,
     actualScore:
       row.status === 'finished' && row.home_score_actual != null && row.away_score_actual != null
         ? { home: row.home_score_actual, away: row.away_score_actual }
@@ -59,7 +60,7 @@ function rowToMatch(row) {
 }
 
 const FIXTURE_SELECT = `
-  id, league, kickoff_at, status, venue, home_score_actual, away_score_actual,
+  id, league, season, kickoff_at, status, venue, home_score_actual, away_score_actual,
   home_formation, away_formation, estimated_lineup_fetched_at, fotmob_league_id,
   quick_h2h, quick_h2h_detail, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at,
   home_team:home_team_id(id, name, logo_url, fotmob_id),
@@ -207,24 +208,24 @@ export async function triggerFetchStandings(fotmobLeagueId) {
   return data;
 }
 
-// Tracked teams, for the admin backtest picker.
-export async function listTeams() {
-  const { data, error } = await supabase.from('teams').select('id, name').order('name', { ascending: true });
-  if (error) throw error;
-  return data;
-}
-
-// Runs the real prediction pipeline against a team's last `count` already-
-// finished matches, using only data from before each match's own kickoff,
-// and stores the comparison against the real result in `backtest_results`.
-export async function runBacktestForTeam(teamId, count = 5) {
-  const { data, error } = await supabase.functions.invoke('backtest', { body: { teamId, count } });
+// Runs the real prediction pipeline against a league/season's most recent
+// already-finished matches, using only data from before each match's own
+// kickoff, and stores the comparison against the real result in
+// `backtest_results`.
+export async function runBacktestForLeagueSeason(league, season, count = 5) {
+  const { data, error } = await supabase.functions.invoke('backtest', { body: { league, season, count } });
   if (error) throw error;
   return data;
 }
 
 export async function runBacktestForMatch(fotmobMatchId) {
   const { data, error } = await supabase.functions.invoke('backtest', { body: { matchId: fotmobMatchId } });
+  if (error) throw error;
+  return data;
+}
+
+export async function clearBacktestResults() {
+  const { data, error } = await supabase.functions.invoke('clear-backtest-results', { body: {} });
   if (error) throw error;
   return data;
 }

@@ -6,9 +6,9 @@ import {
   triggerPredictFixture,
   triggerPredictAllDue,
   untrackFixture,
-  listTeams,
-  runBacktestForTeam,
+  runBacktestForLeagueSeason,
   fetchBacktestResults,
+  clearBacktestResults,
 } from '../lib/fixtures';
 import { confidenceMeta } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
@@ -21,8 +21,8 @@ export default function Admin() {
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState('');
 
-  const [teams, setTeams] = useState([]);
-  const [backtestTeamId, setBacktestTeamId] = useState('');
+  const [backtestLeague, setBacktestLeague] = useState('');
+  const [backtestSeason, setBacktestSeason] = useState(String(new Date().getUTCFullYear()));
   const [backtestCount, setBacktestCount] = useState(5);
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestResults, setBacktestResults] = useState([]);
@@ -48,19 +48,16 @@ export default function Admin() {
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    listTeams()
-      .then(setTeams)
-      .catch(() => {});
     loadBacktestResults();
   }, [loadBacktestResults]);
 
   async function handleRunBacktest() {
-    if (!backtestTeamId) return;
+    if (!backtestLeague) return;
     setBacktestRunning(true);
     setBacktestNotice('');
     setBacktestError('');
     try {
-      const result = await runBacktestForTeam(Number(backtestTeamId), Number(backtestCount) || 5);
+      const result = await runBacktestForLeagueSeason(backtestLeague, Number(backtestSeason) || new Date().getUTCFullYear(), Number(backtestCount) || 5);
       const breakdown = Object.entries(result?.results ?? {})
         .map(([label, outcome]) => `${label}: ${outcome}`)
         .join(' / ');
@@ -131,6 +128,16 @@ export default function Admin() {
       setError(e.message || '예측 갱신에 실패했습니다.');
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleClearBacktestResults() {
+    try {
+      await clearBacktestResults();
+      await loadBacktestResults();
+      setBacktestNotice('백테스팅 결과를 모두 비웠습니다.');
+    } catch (e) {
+      setBacktestError(e.message || '백테스팅 결과 초기화에 실패했습니다.');
     }
   }
 
@@ -235,18 +242,20 @@ export default function Admin() {
       </div>
 
       <div className="admin-actions admin-actions--backtest" style={{ marginBottom: 'var(--space-5)' }}>
-        <select
+        <input
           className="admin-select"
-          value={backtestTeamId}
-          onChange={(e) => setBacktestTeamId(e.target.value)}
-        >
-          <option value="">팀 선택</option>
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+          value={backtestLeague}
+          onChange={(e) => setBacktestLeague(e.target.value)}
+          placeholder="리그 이름 입력"
+        />
+        <input
+          type="number"
+          min={1900}
+          max={2100}
+          className="admin-count-input"
+          value={backtestSeason}
+          onChange={(e) => setBacktestSeason(e.target.value)}
+        />
         <input
           type="number"
           min={1}
@@ -255,9 +264,12 @@ export default function Admin() {
           value={backtestCount}
           onChange={(e) => setBacktestCount(e.target.value)}
         />
-        <span className="backtest-helper">경기 (최근 종료 경기부터)</span>
-        <Button variant="primary" size="md" onClick={handleRunBacktest} disabled={backtestRunning || !backtestTeamId}>
+        <span className="backtest-helper">시즌 / 경기 수</span>
+        <Button variant="primary" size="md" onClick={handleRunBacktest} disabled={backtestRunning || !backtestLeague}>
           {backtestRunning ? '백테스트 실행 중...' : '백테스트 실행'}
+        </Button>
+        <Button variant="secondary" size="md" onClick={handleClearBacktestResults} disabled={backtestRunning || backtestResults.length === 0}>
+          결과 초기화
         </Button>
       </div>
 
