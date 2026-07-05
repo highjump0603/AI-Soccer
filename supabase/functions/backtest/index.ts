@@ -6,13 +6,12 @@
 // already been shown the answer to. Compares the result against what
 // actually happened and asks GPT for a short retrospective on why.
 //
-// Two ways to invoke:
-//   - POST { matchId: <fotmob matchId> }                -> backtest one
-//                                                            specific match
+// Three ways to invoke:
+//   - POST { matchId: <fotmob matchId> } -> backtest one specific match
 //   - POST { teamId: <our internal teams.id>, count?: N } -> backtest that
-//                                                            team's last N
-//                                                            (default 5)
-//                                                            finished matches
+//     team's last N finished matches
+//   - POST { league: <league name>, season?: <year>, count?: N } -> backtest
+//     that league/season's most recent finished matches
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
 import { getMatchDetails, getTeamFixtures, type FmMatch } from '../_shared/fotmob.ts';
 import { getGptPrediction, getBacktestAnalysis } from '../_shared/openai.ts';
@@ -98,7 +97,7 @@ Deno.serve(async (req) => {
   if (preflight) return preflight;
 
   const supabase = getSupabaseAdmin();
-  let body: { matchId?: number; teamId?: number; count?: number } = {};
+  let body: { matchId?: number; teamId?: number; league?: string; season?: number; count?: number } = {};
   try {
     body = await req.json();
   } catch {
@@ -131,8 +130,30 @@ Deno.serve(async (req) => {
         .sort((a, b) => new Date(b.status!.utcTime!).getTime() - new Date(a.status!.utcTime!).getTime())
         .slice(0, body.count ?? 5);
       targets.push(...finished);
+    } else if (body.league) {
+      const seasonYear = body.season ?? new Date().getUTCFullYear();
+      const { data: fixtures, error } = await supabase
+        .from('fixtures')
+        .select('fotmob_id, league, season, kickoff_at, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
+        .eq('league', body.league)
+        .eq('season', seasonYear)
+        .eq('status', 'finished')
+        .order('kickoff_at', { ascending: false })
+        .limit(body.count ?? 5);
+      if (error) throw error;
+      for (const fixture of fixtures ?? []) {
+        targets.push({
+          id: fixture.fotmob_id,
+          leagueId: 0,
+          primaryLeagueId: 0,
+          time: '',
+          home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '' },
+          away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '' },
+          status: { finished: true, utcTime: fixture.kickoff_at },
+        } as FmMatch);
+      }
     } else {
-      return new Response(JSON.stringify({ ok: false, error: 'matchId or teamId is required' }), {
+      return new Response(JSON.stringify({ ok: false, error: 'matchId, teamId, or league is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
