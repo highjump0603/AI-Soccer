@@ -20,6 +20,8 @@ import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
 
+type BacktestTarget = FmMatch & { leagueName?: string | null };
+
 function normalizeLeagueName(value: string | null | undefined) {
   const normalized = String(value ?? '').trim().toLowerCase();
   if (!normalized) return '';
@@ -42,7 +44,7 @@ function normalizeLeagueName(value: string | null | undefined) {
   return aliases[normalized] ?? value?.trim() ?? '';
 }
 
-async function backtestOneMatch(supabase: Supabase, m: FmMatch) {
+async function backtestOneMatch(supabase: Supabase, m: BacktestTarget) {
   if (m.home.score == null || m.away.score == null) throw new Error('match has no final score yet');
 
   let details: Awaited<ReturnType<typeof getMatchDetails>>;
@@ -54,7 +56,7 @@ async function backtestOneMatch(supabase: Supabase, m: FmMatch) {
 
   const kickoffAt = details.general.matchTimeUTCDate ?? m.status?.utcTime ?? new Date().toISOString();
   const leagueId = details.general.leagueId ?? m.leagueId ?? null;
-  const leagueName = details.general.leagueName ?? '';
+  const leagueName = m.leagueName || details.general.leagueName || '';
 
   const inputs = await gatherPredictionInputs(supabase, {
     homeFotmobId: m.home.id,
@@ -132,7 +134,7 @@ Deno.serve(async (req) => {
     // fall through to validation error below
   }
 
-  const targets: FmMatch[] = [];
+  const targets: BacktestTarget[] = [];
   try {
     if (body.matchId) {
       // A single arbitrary FotMob matchId — reconstruct a minimal FmMatch
@@ -175,17 +177,12 @@ Deno.serve(async (req) => {
 
       const matchingFixtures = normalizedFixtures.filter((fixture) => {
         const fixtureLeague = normalizeLeagueName(fixture.league);
-        const sameSeason = fixture.season == null || fixture.season === seasonYear || String(fixture.season ?? '') === String(seasonYear);
+        const sameSeason = fixture.season == null || Number(fixture.season) === Number(seasonYear) || String(fixture.season ?? '') === String(seasonYear);
         const sameLeague = !requestedLeague || fixtureLeague === requestedLeague;
         return sameSeason && sameLeague;
       });
 
-      const fallbackFixtures = matchingFixtures.length > 0 ? matchingFixtures : normalizedFixtures.filter((fixture) => {
-        const fixtureLeague = normalizeLeagueName(fixture.league);
-        return !requestedLeague || fixtureLeague === requestedLeague;
-      });
-
-      const resolvedFixtures = fallbackFixtures.length > 0 ? fallbackFixtures : normalizedFixtures.slice(0, body.count ?? 5);
+      const resolvedFixtures = requestedLeague ? matchingFixtures : normalizedFixtures;
 
       for (const fixture of resolvedFixtures.slice(0, body.count ?? 5)) {
         if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
@@ -197,7 +194,8 @@ Deno.serve(async (req) => {
           home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '', score: fixture.home_score_actual ?? null },
           away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '', score: fixture.away_score_actual ?? null },
           status: { finished: true, utcTime: fixture.kickoff_at },
-        } as FmMatch);
+          leagueName: fixture.league ?? requestedLeague || body.league,
+        } as BacktestTarget);
       }
     } else {
       return new Response(JSON.stringify({ ok: false, error: 'matchId, teamId, or league is required' }), {
