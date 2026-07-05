@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import Button from '../components/ui/Button';
-import { listAllFixturesForAdmin, triggerSyncLeagues, triggerPredictFixture, untrackFixture } from '../lib/fixtures';
+import { listAllFixturesForAdmin, triggerSyncLeagues, triggerPredictFixture, triggerPredictAllDue, untrackFixture } from '../lib/fixtures';
 import { confidenceMeta } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 
@@ -45,8 +45,13 @@ export default function Admin() {
         .join(' / ');
       const dateErrors = Object.entries(result?.dateErrors ?? {});
       const errorNote = dateErrors.length ? ` (일부 날짜 조회 실패: ${dateErrors.map(([d, msg]) => `${d} - ${msg}`).join('; ')})` : '';
-      setNotice(breakdown ? `동기화 결과 — ${breakdown}${errorNote}` : '동기화 응답이 비어있습니다.');
+      setNotice(breakdown ? `동기화 결과 — ${breakdown}${errorNote} — 예측 계산 중...` : '동기화 응답이 비어있습니다.');
+      // New fixtures have no AI prediction yet (that's a separate cron, up
+      // to 30 minutes away) — run it now so the admin table isn't stuck on
+      // "미계산" right after a sync.
+      await triggerPredictAllDue().catch(() => {});
       await load();
+      setNotice(breakdown ? `동기화 결과 — ${breakdown}${errorNote}` : '동기화 응답이 비어있습니다.');
     } catch (e) {
       setError(e.message || '동기화에 실패했습니다.');
     } finally {

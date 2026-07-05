@@ -150,6 +150,16 @@ export async function triggerPredictFixture(fixtureId) {
   return data;
 }
 
+// Runs the same "what's due" pass predict-due's cron trigger does, but
+// on-demand — used right after a manual sync so newly-discovered fixtures
+// get an AI prediction immediately instead of waiting for the next
+// scheduled cron tick (up to 30 minutes away).
+export async function triggerPredictAllDue() {
+  const { data, error } = await supabase.functions.invoke('predict-due', { body: {} });
+  if (error) throw error;
+  return data;
+}
+
 export async function untrackFixture(fixtureId) {
   const { data, error } = await supabase.functions.invoke('untrack-fixture', { body: { fixture_id: fixtureId } });
   if (error) throw error;
