@@ -38,14 +38,6 @@ function rowToMatch(row) {
     generatedAt: p?.generated_at ?? null,
     score: p ? { home: p.final_score_home, away: p.final_score_away } : null,
     prob: p ? { home: round1(p.final_prob_home), draw: round1(p.final_prob_draw), away: round1(p.final_prob_away) } : null,
-    statScore: p ? { home: p.stat_score_home, away: p.stat_score_away } : null,
-    statProb: p ? { home: round1(p.stat_prob_home), draw: round1(p.stat_prob_draw), away: round1(p.stat_prob_away) } : null,
-    statXg: p ? { home: p.stat_xg_home, away: p.stat_xg_away } : null,
-    gptScore: p && p.gpt_score_home != null ? { home: p.gpt_score_home, away: p.gpt_score_away } : null,
-    gptProb:
-      p && p.gpt_prob_home != null
-        ? { home: round1(p.gpt_prob_home), draw: round1(p.gpt_prob_draw), away: round1(p.gpt_prob_away) }
-        : null,
     confidence: p?.confidence ?? null,
     factors: p?.factors ?? [],
     h2h: p?.h2h ?? row.quick_h2h ?? [],

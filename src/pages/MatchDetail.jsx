@@ -230,42 +230,6 @@ export default function MatchDetail() {
 
           <div className="detail-grid" style={{ marginTop: 'var(--space-8)' }}>
             <div>
-              {match.hasPrediction && (match.statScore || match.gptScore) && (
-                <div className="detail-card">
-                  <div className="detail-block-title">예측 모델 비교</div>
-                  <div className="model-compare-grid">
-                    {match.statScore && (
-                      <div className="model-compare-item">
-                        <div className="model-compare-label">
-                          통계 모델{match.statXg?.home != null && ` (xG ${match.statXg.home.toFixed(2)}–${match.statXg.away.toFixed(2)})`}
-                        </div>
-                        <div className="model-compare-score">
-                          {match.statScore.home}–{match.statScore.away}
-                        </div>
-                        {match.statProb && (
-                          <div className="model-compare-prob">
-                            홈 {match.statProb.home}% · 무 {match.statProb.draw}% · 원정 {match.statProb.away}%
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {match.gptScore && (
-                      <div className="model-compare-item">
-                        <div className="model-compare-label">GPT 예측</div>
-                        <div className="model-compare-score">
-                          {match.gptScore.home}–{match.gptScore.away}
-                        </div>
-                        {match.gptProb && (
-                          <div className="model-compare-prob">
-                            홈 {match.gptProb.home}% · 무 {match.gptProb.draw}% · 원정 {match.gptProb.away}%
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="model-compare-note">두 모델을 65:35로 종합한 결과가 위 최종 예측입니다.</div>
-                </div>
-              )}
               {match.hasPrediction && (
                 <div className="detail-card">
                   <div className="detail-block-title">주요 변수</div>
@@ -392,7 +356,7 @@ export default function MatchDetail() {
             </div>
             <div>
               <div className="detail-card">
-                <div className="detail-block-title">북메이커 배당률 (1 / X / 2)</div>
+                <div className="detail-block-title">배당률 (1 / X / 2)</div>
                 <table className="odds-table">
                   <thead>
                     <tr>

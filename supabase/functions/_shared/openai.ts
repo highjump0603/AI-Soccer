@@ -1,7 +1,9 @@
-// GPT side of the ensemble — same underlying stats as the Poisson model,
-// but asked to weigh qualitative context (missing players, run of form,
-// fixture context) the way a knowledgeable fan would, in Korean since
-// that's what the site displays.
+// GPT is now the sole predictor (no separate statistical model blended in
+// afterward) — it's given every signal we can gather (formation, expected
+// lineup, rest/fatigue, discipline, H2H, each team's own recent form and
+// league position, plus a reference expected-goals estimate) and asked to
+// reason through all of it to a final score and probabilities directly, in
+// Korean since that's what the site displays.
 
 const RESPONSE_SCHEMA = {
   name: 'match_prediction',
@@ -19,8 +21,8 @@ const RESPONSE_SCHEMA = {
         type: 'array',
         items: { type: 'string' },
         minItems: 3,
-        maxItems: 4,
-        description: '예측에 영향을 준 핵심 변수 3~4개, 각각 한 문장, 한국어',
+        maxItems: 5,
+        description: '예측에 영향을 준 핵심 변수 3~5개, 각각 한 문장, 한국어',
       },
       summary: { type: 'string', description: '한두 문장짜리 종합 코멘트, 한국어' },
     },
@@ -38,6 +40,15 @@ export type GptPredictionInput = {
   h2hSummary: string;
   homeLineupSummary: string;
   awayLineupSummary: string;
+  homeFormationNote: string;
+  awayFormationNote: string;
+  homeFatigueNote: string;
+  awayFatigueNote: string;
+  homeDisciplineNote: string;
+  awayDisciplineNote: string;
+  homeStandingNote: string;
+  awayStandingNote: string;
+  referenceXg: string;
 };
 
 export type GptPrediction = {
@@ -54,11 +65,15 @@ export async function getGptPrediction(input: GptPredictionInput): Promise<GptPr
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) throw new Error('OPENAI_API_KEY secret is not set for this function.');
 
-  const prompt = `다음은 실제 축구 경기 데이터입니다. 이 정보를 바탕으로 승/무/패 확률과 예상 스코어를 예측해주세요.
+  const prompt = `다음은 실제 축구 경기 데이터입니다. 아래 모든 정보를 종합적으로 고려해 승/무/패 확률과 예상 스코어를 직접 예측해주세요. 별도의 통계 모델은 없으니, 당신의 예측이 곧 최종 예측입니다.
 
 리그: ${input.league}
 경기: ${input.homeTeam} (홈) vs ${input.awayTeam} (원정)
 킥오프: ${input.kickoffAt}
+
+[리그 순위]
+홈팀 - ${input.homeStandingNote}
+원정팀 - ${input.awayStandingNote}
 
 [홈팀 최근 폼]
 ${input.homeFormSummary}
@@ -69,13 +84,26 @@ ${input.awayFormSummary}
 [최근 상대 전적]
 ${input.h2hSummary}
 
-[홈팀 라인업 소식]
-${input.homeLineupSummary}
+[포메이션]
+홈팀 - ${input.homeFormationNote}
+원정팀 - ${input.awayFormationNote}
 
-[원정팀 라인업 소식]
+[예상/확정 선발 라인업]
+${input.homeLineupSummary}
 ${input.awayLineupSummary}
 
-통계적으로 계산된 별도 모델이 이미 있으니, 당신은 위 맥락(부상/로테이션/최근 흐름 등 정성적 요소)을 반영해 독립적인 예측을 내주세요. 확률 3개의 합은 반드시 100이 되어야 합니다.`;
+[휴식/피로도]
+홈팀 - ${input.homeFatigueNote}
+원정팀 - ${input.awayFatigueNote}
+
+[카드/징계 (최근 경기 평균)]
+홈팀 - ${input.homeDisciplineNote}
+원정팀 - ${input.awayDisciplineNote}
+
+[참고용 기대득점 (최근 득점력/실점력 기반 참고치, 그대로 따를 필요는 없음)]
+${input.referenceXg}
+
+위 모든 요소(포메이션, 라인업, 피로도, 카드/징계, 맞대결, 각 팀의 최근 폼과 순위, 기대득점)를 근거로 삼아 최종 스코어와 확률을 예측하세요. 확률 3개의 합은 반드시 100이 되어야 합니다. factors에는 실제로 이 예측에 영향을 준 구체적인 근거(예: 포메이션 상성, 피로 누적, 카드 누적으로 인한 결장 위험, 순위 격차 등)를 담아주세요.`;
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
