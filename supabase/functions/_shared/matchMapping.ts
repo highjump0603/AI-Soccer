@@ -206,7 +206,11 @@ export function estimateLineupFm(recentLineups: FmTeamLineup[], unavailableIds: 
     .filter((n) => Number.isFinite(n) && n > 0);
   const dfCount = segments[0] ?? 4;
   const fwCount = segments.length > 1 ? segments[segments.length - 1] : 2;
-  const mfCount = segments.length > 2 ? segments.slice(1, -1).reduce((a, b) => a + b, 0) : Math.max(0, 10 - dfCount - fwCount);
+  // Middle segments (e.g. "4-2-3-1"'s 2 and 3) become their own pitch rows
+  // instead of one merged midfield line — otherwise a double-pivot +
+  // attacking-three shape renders as a single flat row of 5, visually
+  // contradicting the formation label shown right above it.
+  const midSegments = segments.length > 2 ? segments.slice(1, -1) : [Math.max(0, 10 - dfCount - fwCount)];
 
   type Stat = { name: string; number?: number; group: PosGroup; count: number; lastSeen: number };
   const stats = new Map<number, Stat>();
@@ -239,7 +243,7 @@ export function estimateLineupFm(recentLineups: FmTeamLineup[], unavailableIds: 
   const wanted: { group: PosGroup; count: number }[] = [
     { group: 'G', count: 1 },
     { group: 'D', count: dfCount },
-    { group: 'M', count: mfCount },
+    ...midSegments.map((count) => ({ group: 'M' as PosGroup, count })),
     { group: 'F', count: fwCount },
   ];
 
