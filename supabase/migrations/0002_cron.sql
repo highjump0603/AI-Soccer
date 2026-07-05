@@ -6,7 +6,9 @@
 --
 --   select vault.create_secret('<your service_role_key>', 'service_role_key');
 --
--- (see SETUP.md for the full one-time setup step).
+-- (see README.md for the full one-time setup step). Also replace
+-- YOUR_PROJECT_REF below with your own Supabase project ref (Project
+-- Settings -> General -> Reference ID) before applying this migration.
 
 create extension if not exists pg_cron with schema extensions;
 create extension if not exists pg_net with schema extensions;
@@ -17,7 +19,7 @@ select cron.schedule(
   '0 */6 * * *',
   $$
   select net.http_post(
-    url := 'https://aynsrteiuomwowjgzbji.supabase.co/functions/v1/sync-leagues',
+    url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/sync-leagues',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')
@@ -36,7 +38,7 @@ select cron.schedule(
   '*/30 * * * *',
   $$
   select net.http_post(
-    url := 'https://aynsrteiuomwowjgzbji.supabase.co/functions/v1/predict-due',
+    url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/predict-due',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')

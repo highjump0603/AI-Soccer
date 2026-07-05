@@ -1,4 +1,4 @@
-project_id = "aynsrteiuomwowjgzbji"
+project_id = "your-project-ref"
 
 [functions.sync-leagues]
 verify_jwt = true

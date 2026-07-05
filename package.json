@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/highjump0603/AI-Soccer.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
