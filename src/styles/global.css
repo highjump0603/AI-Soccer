@@ -128,6 +128,8 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
 .admin-field input, .admin-field select, .admin-field textarea { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--fg-1); padding: 9px 10px; font-family: var(--font-body); font-size: 13px; }
 .admin-field textarea { min-height: 70px; resize: vertical; font-family: var(--font-body); }
 .admin-actions { display: flex; gap: var(--space-3); margin-bottom: var(--space-10); align-items: center; }
+.admin-select, .admin-count-input { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--fg-1); padding: 9px 10px; font-family: var(--font-body); font-size: 13px; }
+.admin-count-input { width: 64px; }
 .form-error { color: var(--color-error); font-size: 12px; }
 .admin-table-wrap { overflow-x: auto; }
 .admin-table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 760px; }

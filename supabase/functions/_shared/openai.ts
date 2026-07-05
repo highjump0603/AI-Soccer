@@ -103,7 +103,13 @@ ${input.awayLineupSummary}
 [참고용 기대득점 (최근 득점력/실점력 기반 참고치, 그대로 따를 필요는 없음)]
 ${input.referenceXg}
 
-위 모든 요소(포메이션, 라인업, 피로도, 카드/징계, 맞대결, 각 팀의 최근 폼과 순위, 기대득점)를 근거로 삼아 최종 스코어와 확률을 예측하세요. 확률 3개의 합은 반드시 100이 되어야 합니다. factors에는 실제로 이 예측에 영향을 준 구체적인 근거(예: 포메이션 상성, 피로 누적, 카드 누적으로 인한 결장 위험, 순위 격차 등)를 담아주세요.`;
+위 모든 요소(포메이션, 라인업, 피로도, 카드/징계, 맞대결, 각 팀의 최근 폼과 순위, 기대득점)를 근거로 삼아 최종 스코어와 확률을 예측하세요.
+
+중요한 규칙:
+1. 확률 3개의 합은 반드시 100이 되어야 합니다.
+2. score_home/score_away는 반드시 확률 분포와 논리적으로 일치해야 합니다 — 예를 들어 prob_draw가 가장 높거나 다른 두 확률과 비슷하게 근소하다면 score_home과 score_away는 반드시 같아야 합니다(무승부 스코어). prob_away가 가장 높다면 score_away > score_home이어야 합니다.
+3. 실전 축구 스코어는 매우 다양합니다(0-0, 1-0, 1-1, 2-0, 2-1, 2-2, 3-1, 0-1 등). 두 팀 모두 최근 득점력이 낮으면 저득점 스코어(0-0, 1-0)를, 대등한 팀끼리는 무승부(1-1, 0-0, 2-2)를, 한쪽이 확실히 우세하면 그 격차에 맞는 스코어를 예측하세요. 근거 없이 "2-1" 같은 무난한 스코어로 습관적으로 수렴하지 마세요 — 반드시 위에 주어진 실제 데이터(득점력, 실점력, 기대득점)에 비례하는 스코어를 계산해서 내세요.
+4. factors에는 실제로 이 예측에 영향을 준 구체적인 근거(예: 포메이션 상성, 피로 누적, 카드 누적으로 인한 결장 위험, 순위 격차 등)를 담아주세요.`;
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -140,4 +146,54 @@ ${input.referenceXg}
     factors: parsed.factors,
     summary: parsed.summary,
   };
+}
+
+// Second, separate GPT call used only by backtesting: given what was
+// predicted (using only pre-match data) vs what actually happened, explain
+// why the prediction landed where it did and suggest one concrete way the
+// inputs could be weighted differently next time. Deliberately a plain-text
+// call (not the strict prediction schema) since this is a qualitative
+// retrospective, not another prediction.
+export async function getBacktestAnalysis(input: {
+  homeTeam: string;
+  awayTeam: string;
+  predictedProbs: { home: number; draw: number; away: number };
+  predictedScore: { home: number; away: number };
+  predictedFactors: string[];
+  actualScore: { home: number; away: number };
+}): Promise<string> {
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) throw new Error('OPENAI_API_KEY secret is not set for this function.');
+
+  const predictedOutcome = input.predictedScore.home > input.predictedScore.away ? '홈 승' : input.predictedScore.home < input.predictedScore.away ? '원정 승' : '무승부';
+  const actualOutcome = input.actualScore.home > input.actualScore.away ? '홈 승' : input.actualScore.home < input.actualScore.away ? '원정 승' : '무승부';
+  const outcomeCorrect = predictedOutcome === actualOutcome;
+
+  const prompt = `다음은 경기 전 데이터만으로 나온 AI 예측과, 실제 경기 결과입니다.
+
+경기: ${input.homeTeam} (홈) vs ${input.awayTeam} (원정)
+예측: ${input.predictedScore.home}-${input.predictedScore.away} (${predictedOutcome}, 홈 ${input.predictedProbs.home}% / 무 ${input.predictedProbs.draw}% / 원정 ${input.predictedProbs.away}%)
+예측 근거: ${input.predictedFactors.join(' / ')}
+실제 결과: ${input.actualScore.home}-${input.actualScore.away} (${actualOutcome})
+승부 결과 적중 여부: ${outcomeCorrect ? '적중' : '실패'}
+
+이 예측이 왜 맞았는지 혹은 왜 틀렸는지 2~3문장으로 분석하고, 다음에 비슷한 상황에서 예측 정확도를 높이려면 어떤 데이터에 더/덜 가중치를 둬야 할지 한 문장으로 제안해주세요. 한국어로, 구체적으로 답하세요.`;
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: '당신은 스포츠 예측 모델을 검증하는 데이터 분석가입니다. 간결하고 구체적으로 답하세요.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.3,
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI request failed: ${res.status} ${await res.text()}`);
+  const json = await res.json();
+  const content = json.choices?.[0]?.message?.content;
+  if (!content) throw new Error('OpenAI response had no content.');
+  return content.trim();
 }

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import Button from '../components/ui/Button';
-import { listAllFixturesForAdmin, triggerSyncLeagues, triggerPredictFixture, triggerPredictAllDue, untrackFixture } from '../lib/fixtures';
+import {
+  listAllFixturesForAdmin,
+  triggerSyncLeagues,
+  triggerPredictFixture,
+  triggerPredictAllDue,
+  untrackFixture,
+  listTeams,
+  runBacktestForTeam,
+  fetchBacktestResults,
+} from '../lib/fixtures';
 import { confidenceMeta } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
 
@@ -11,6 +20,49 @@ export default function Admin() {
   const [syncing, setSyncing] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState('');
+
+  const [teams, setTeams] = useState([]);
+  const [backtestTeamId, setBacktestTeamId] = useState('');
+  const [backtestCount, setBacktestCount] = useState(5);
+  const [backtestRunning, setBacktestRunning] = useState(false);
+  const [backtestResults, setBacktestResults] = useState([]);
+  const [backtestNotice, setBacktestNotice] = useState('');
+  const [backtestError, setBacktestError] = useState('');
+
+  const loadBacktestResults = useCallback(async () => {
+    try {
+      setBacktestResults(await fetchBacktestResults());
+    } catch (e) {
+      setBacktestError(e.message || '백테스트 결과를 불러오지 못했습니다.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    listTeams()
+      .then(setTeams)
+      .catch(() => {});
+    loadBacktestResults();
+  }, [loadBacktestResults]);
+
+  async function handleRunBacktest() {
+    if (!backtestTeamId) return;
+    setBacktestRunning(true);
+    setBacktestNotice('');
+    setBacktestError('');
+    try {
+      const result = await runBacktestForTeam(Number(backtestTeamId), Number(backtestCount) || 5);
+      const breakdown = Object.entries(result?.results ?? {})
+        .map(([label, outcome]) => `${label}: ${outcome}`)
+        .join(' / ');
+      setBacktestNotice(breakdown || '백테스트 응답이 비어있습니다.');
+      await loadBacktestResults();
+    } catch (e) {
+      setBacktestError(e.message || '백테스트 실행에 실패했습니다.');
+    } finally {
+      setBacktestRunning(false);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -95,8 +147,8 @@ export default function Admin() {
           <h2 className="section-title">추적 경기 관리</h2>
         </div>
         <div className="section-desc">
-          경기 데이터는 API-Football + 통계 모델 + GPT가 자동으로 계산합니다. 새 경기 발견과 예측 갱신은 정기적으로
-          자동 실행되며, 여기서 즉시 실행할 수도 있습니다.
+          경기 데이터는 FotMob + GPT가 자동으로 계산합니다. 새 경기 발견과 예측 갱신은 정기적으로 자동 실행되며,
+          여기서 즉시 실행할 수도 있습니다.
         </div>
       </div>
 
@@ -136,7 +188,7 @@ export default function Admin() {
                     <td>{f.home.name}</td>
                     <td>{f.away.name}</td>
                     <td>{f.hasPrediction ? `${f.score.home}-${f.score.away}` : '미계산'}</td>
-                    <td>{conf ? conf.label : '—'}</td>
+                    <td>{conf ? (f.confidencePct != null ? `${f.confidencePct}%` : conf.label) : '—'}</td>
                     <td>{f.generatedAt ? new Date(f.generatedAt).toLocaleString('ko-KR') : '—'}</td>
                     <td>
                       <div className="admin-row-actions">
@@ -160,6 +212,122 @@ export default function Admin() {
           </table>
         </div>
       )}
+
+      <div className="section-head" style={{ marginTop: 'var(--space-12)' }}>
+        <div>
+          <span className="section-num">백테스팅 —</span>
+          <h2 className="section-title">과거 경기로 예측 검증</h2>
+        </div>
+        <div className="section-desc">
+          이미 종료된 경기를 골라, 그 경기 시작 이전 데이터만으로 다시 예측을 돌린 뒤 실제 결과와 비교합니다. 예측
+          시점 이후의 정보(그 경기 자체의 결과 포함)는 전혀 사용하지 않습니다 — 순위표만 현재 기준이라는 한계가
+          있습니다.
+        </div>
+      </div>
+
+      <div className="admin-actions" style={{ marginBottom: 'var(--space-5)', alignItems: 'center' }}>
+        <select
+          className="admin-select"
+          value={backtestTeamId}
+          onChange={(e) => setBacktestTeamId(e.target.value)}
+        >
+          <option value="">팀 선택</option>
+          {teams.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number"
+          min={1}
+          max={20}
+          className="admin-count-input"
+          value={backtestCount}
+          onChange={(e) => setBacktestCount(e.target.value)}
+        />
+        <span style={{ color: 'var(--fg-3)', fontSize: 13 }}>경기 (최근 종료 경기부터)</span>
+        <Button variant="primary" size="md" onClick={handleRunBacktest} disabled={backtestRunning || !backtestTeamId}>
+          {backtestRunning ? '백테스트 실행 중...' : '백테스트 실행'}
+        </Button>
+      </div>
+
+      {backtestNotice && <div className="state-msg" style={{ color: 'var(--color-success)' }}>{backtestNotice}</div>}
+      {backtestError && <div className="state-msg error">{backtestError}</div>}
+
+      {backtestResults.length > 0 && (
+        <>
+          <BacktestSummary results={backtestResults} />
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>리그</th>
+                  <th>경기</th>
+                  <th>일시</th>
+                  <th>예측</th>
+                  <th>실제</th>
+                  <th>승부 적중</th>
+                  <th>스코어 적중</th>
+                  <th>분석</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backtestResults.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.league || '—'}</td>
+                    <td>
+                      {r.home_team_name} vs {r.away_team_name}
+                    </td>
+                    <td>{new Date(r.kickoff_at).toLocaleDateString('ko-KR')}</td>
+                    <td>
+                      {r.predicted_score_home}-{r.predicted_score_away} (홈 {r.predicted_prob_home}% / 무{' '}
+                      {r.predicted_prob_draw}% / 원정 {r.predicted_prob_away}%)
+                    </td>
+                    <td>
+                      {r.actual_score_home}-{r.actual_score_away}
+                    </td>
+                    <td style={{ color: r.outcome_correct ? 'var(--color-success)' : 'var(--color-error)' }}>
+                      {r.outcome_correct ? '적중' : '실패'}
+                    </td>
+                    <td style={{ color: r.score_correct ? 'var(--color-success)' : 'var(--fg-3)' }}>
+                      {r.score_correct ? '적중' : '—'}
+                    </td>
+                    <td style={{ maxWidth: 360, whiteSpace: 'normal' }}>{r.analysis}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function BacktestSummary({ results }) {
+  const total = results.length;
+  const outcomeHits = results.filter((r) => r.outcome_correct).length;
+  const scoreHits = results.filter((r) => r.score_correct).length;
+  const pct = (n) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  return (
+    <div className="stat-row" style={{ marginBottom: 'var(--space-6)' }}>
+      <div className="stat-cell">
+        <div className="stat-num">{total}</div>
+        <div className="stat-label">백테스트 경기 수</div>
+      </div>
+      <div className="stat-cell">
+        <div className="stat-num">{pct(outcomeHits)}%</div>
+        <div className="stat-label">
+          승부 적중률 ({outcomeHits}/{total})
+        </div>
+      </div>
+      <div className="stat-cell">
+        <div className="stat-num">{pct(scoreHits)}%</div>
+        <div className="stat-label">
+          정확한 스코어 적중률 ({scoreHits}/{total})
+        </div>
+      </div>
     </div>
   );
 }

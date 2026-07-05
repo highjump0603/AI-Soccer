@@ -217,7 +217,7 @@ export default function MatchDetail() {
               <ProbBar prob={match.prob} labelsStyle={{ marginBottom: 'var(--space-6)' }} />
 
               <Badge variant={conf.variant} dot>
-                예측 신뢰도 {conf.label}
+                예측 신뢰도 {match.confidencePct != null ? `${match.confidencePct}%` : conf.label}
               </Badge>
 
               {match.gptSummary && (

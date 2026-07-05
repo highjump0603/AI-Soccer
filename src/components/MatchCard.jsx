@@ -58,7 +58,7 @@ export default function MatchCard({ match }) {
           <ProbBar prob={match.prob} />
           <div className="mcard-foot">
             <Badge variant={conf.variant} dot>
-              신뢰도 {conf.label}
+              신뢰도 {match.confidencePct != null ? `${match.confidencePct}%` : conf.label}
             </Badge>
             <span className="expand-hint">상세 보기 →</span>
           </div>
