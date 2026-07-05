@@ -311,11 +311,21 @@ export default function Admin() {
                     </td>
                     <td>{new Date(r.kickoff_at).toLocaleDateString('ko-KR')}</td>
                     <td>
-                      {r.predicted_score_home}-{r.predicted_score_away} (홈 {r.predicted_prob_home}% / 무{' '}
-                      {r.predicted_prob_draw}% / 원정 {r.predicted_prob_away}%)
+                      <div className="backtest-score-cell">
+                        <strong>
+                          {r.predicted_score_home}-{r.predicted_score_away}
+                        </strong>
+                        <span>
+                          홈 {r.predicted_prob_home}% / 무 {r.predicted_prob_draw}% / 원정 {r.predicted_prob_away}%
+                        </span>
+                      </div>
                     </td>
                     <td>
-                      {r.actual_score_home}-{r.actual_score_away}
+                      <div className="backtest-score-cell backtest-score-cell--actual">
+                        <strong>
+                          {r.actual_score_home}-{r.actual_score_away}
+                        </strong>
+                      </div>
                     </td>
                     <td style={{ color: r.outcome_correct ? 'var(--color-success)' : 'var(--color-error)' }}>
                       {r.outcome_correct ? '적중' : '실패'}
