@@ -63,10 +63,12 @@ export default function Admin() {
     setBacktestError('');
     try {
       const result = await runBacktestForLeagueSeason(backtestLeague, Number(backtestSeason) || new Date().getUTCFullYear(), Number(backtestCount) || 5);
-      const breakdown = Object.entries(result?.results ?? {})
+      const entries = Object.entries(result?.results ?? {});
+      const breakdown = entries
         .map(([label, outcome]) => `${label}: ${outcome}`)
         .join(' / ');
-      setBacktestNotice(breakdown || '백테스트 응답이 비어있습니다.');
+      const details = [result?.message, result?.error].filter(Boolean);
+      setBacktestNotice(breakdown || details.join(' / ') || '백테스트 응답이 비어있습니다.');
       await loadBacktestResults();
     } catch (e) {
       setBacktestError(e.message || '백테스트 실행에 실패했습니다.');

@@ -20,6 +20,28 @@ import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
 
+function normalizeLeagueName(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return '';
+  const aliases: Record<string, string> = {
+    '프리미어리그': '프리미어리그',
+    'epl': '프리미어리그',
+    'premierleague': '프리미어리그',
+    '라리가': '라리가',
+    'laliga': '라리가',
+    '분데스리가': '분데스리가',
+    'bundesliga': '분데스리가',
+    '세리에a': '세리에A',
+    'seriea': '세리에A',
+    '리그앙': '리그앙',
+    'ligue1': '리그앙',
+    'k리그1': 'K리그1',
+    '월드컵': '월드컵',
+    'worldcup': '월드컵',
+  };
+  return aliases[normalized] ?? value?.trim() ?? '';
+}
+
 async function backtestOneMatch(supabase: Supabase, m: FmMatch) {
   if (m.home.score == null || m.away.score == null) throw new Error('match has no final score yet');
 
@@ -132,24 +154,31 @@ Deno.serve(async (req) => {
       targets.push(...finished);
     } else if (body.league) {
       const seasonYear = body.season ?? new Date().getUTCFullYear();
+      const requestedLeague = normalizeLeagueName(body.league);
       const { data: fixtures, error } = await supabase
         .from('fixtures')
-        .select('fotmob_id, league, season, kickoff_at, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
-        .eq('league', body.league)
-        .eq('season', seasonYear)
+        .select('fotmob_id, league, season, kickoff_at, home_score_actual, away_score_actual, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
         .eq('status', 'finished')
         .order('kickoff_at', { ascending: false })
-        .limit(body.count ?? 5);
+        .limit(Math.max(50, (body.count ?? 5) * 10));
       if (error) throw error;
-      for (const fixture of fixtures ?? []) {
+
+      const matchingFixtures = (fixtures ?? []).filter((fixture) => {
+        const fixtureLeague = normalizeLeagueName(fixture.league);
+        const sameSeason = fixture.season == null || fixture.season === seasonYear;
+        const sameLeague = !requestedLeague || fixtureLeague === requestedLeague || normalizeLeagueName(body.league) === fixtureLeague;
+        return sameSeason && sameLeague;
+      });
+
+      for (const fixture of matchingFixtures.slice(0, body.count ?? 5)) {
         if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
         targets.push({
           id: fixture.fotmob_id,
           leagueId: 0,
           primaryLeagueId: 0,
           time: '',
-          home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '' },
-          away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '' },
+          home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '', score: fixture.home_score_actual ?? null },
+          away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '', score: fixture.away_score_actual ?? null },
           status: { finished: true, utcTime: fixture.kickoff_at },
         } as FmMatch);
       }
