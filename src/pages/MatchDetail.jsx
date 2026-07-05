@@ -158,28 +158,21 @@ export default function MatchDetail() {
                 {match.home.name}
               </span>
             </div>
-            <div>
-              <div className="score" style={{ fontSize: 48 }}>
-                {match.actualScore ? (
-                  <>
-                    {match.actualScore.home}
-                    <span className="dash">–</span>
-                    {match.actualScore.away}
-                  </>
-                ) : match.hasPrediction ? (
-                  <>
-                    {match.score.home}
-                    <span className="dash">–</span>
-                    {match.score.away}
-                  </>
-                ) : (
-                  <span className="dash">VS</span>
-                )}
-              </div>
-              {match.actualScore && match.hasPrediction && (
-                <div className="score-predicted-sub">
-                  AI 예측 {match.score.home} – {match.score.away}
-                </div>
+            <div className="score" style={{ fontSize: 48 }}>
+              {match.actualScore ? (
+                <>
+                  {match.actualScore.home}
+                  <span className="dash">–</span>
+                  {match.actualScore.away}
+                </>
+              ) : match.hasPrediction ? (
+                <>
+                  {match.score.home}
+                  <span className="dash">–</span>
+                  {match.score.away}
+                </>
+              ) : (
+                <span className="dash">VS</span>
               )}
             </div>
             <div className="team">
@@ -191,6 +184,27 @@ export default function MatchDetail() {
           </div>
 
           {!match.hasPrediction && match.actualScore && <Badge variant="default">경기 종료</Badge>}
+
+          {match.actualScore && match.hasPrediction && (
+            <div className="score-compare-grid">
+              <div className="detail-card score-compare-card">
+                <div className="detail-block-title">실제 결과</div>
+                <div className="score-compare-value">
+                  {match.actualScore.home}
+                  <span className="dash">–</span>
+                  {match.actualScore.away}
+                </div>
+              </div>
+              <div className="detail-card score-compare-card">
+                <div className="detail-block-title">AI 예측 스코어</div>
+                <div className="score-compare-value">
+                  {match.score.home}
+                  <span className="dash">–</span>
+                  {match.score.away}
+                </div>
+              </div>
+            </div>
+          )}
 
           {!match.hasPrediction && !match.actualScore && (
             <div className="state-msg">

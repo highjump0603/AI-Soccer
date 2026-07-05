@@ -178,6 +178,50 @@ export function runPoissonModel(params: {
   return { xgHome, xgAway, ...summary };
 }
 
+// Formation shape (e.g. "4-3-3" -> defenders/midfielders/forwards) skewed
+// toward attack (more forwards/attacking mid relative to defenders) nudges
+// a team's own expected goals up a little; skewed toward defense nudges it
+// down. Splits midfielders evenly between the two roles since we don't
+// know the formation's actual attacking/holding split (e.g. "4-2-3-1"'s
+// double pivot vs its 3 attacking mids) from the formation string alone.
+// Deliberately a small effect (roughly +-8%) — formation shape is a weak
+// signal next to actual recent scoring form.
+export function formationAttackMultiplier(formation: string | null | undefined): number {
+  if (!formation) return 1;
+  const segments = formation
+    .split('-')
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (segments.length < 2) return 1;
+  const defenders = segments[0];
+  const forwards = segments[segments.length - 1];
+  const midfielders = segments.slice(1, -1).reduce((a, b) => a + b, 0);
+  const attackWeight = forwards + midfielders * 0.5;
+  const defenseWeight = defenders + midfielders * 0.5;
+  const total = attackWeight + defenseWeight;
+  if (total === 0) return 1;
+  const ratio = attackWeight / total; // 0.5 = balanced
+  return Math.min(1.08, Math.max(0.92, 1 + (ratio - 0.5) * 0.32));
+}
+
+// Missing (injured/suspended) players reduce a team's attacking output —
+// each absence is treated as roughly equally impactful since there's no
+// per-player quality data to weight star players more heavily. Deliberately
+// modest per-player effect for the same reason.
+export function availabilityMultiplier(unavailableCount: number): number {
+  return Math.min(1, Math.max(0.85, 1 - unavailableCount * 0.03));
+}
+
+// Combines formation shape and squad availability into the single
+// lineupStrength multiplier runPoissonModel accepts per side. Both inputs
+// are best-effort heuristics (no player-quality data), so the combined
+// swing is capped well short of what actual squad strength differences
+// would justify — this should nudge the form/H2H-driven xG, not dominate it.
+export function computeTacticalStrength(formation: string | null | undefined, unavailableCount: number): number {
+  const combined = formationAttackMultiplier(formation) * availabilityMultiplier(unavailableCount);
+  return Math.min(1.15, Math.max(0.8, combined));
+}
+
 // Rough proxy for "is this the club's first-choice XI or a weakened one":
 // what fraction of the given lineup's players also appear in the team's
 // own recent-results-linked squad activity. We don't have a player-rating

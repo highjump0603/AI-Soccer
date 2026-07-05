@@ -113,7 +113,9 @@ export function formSummaryText(recent: RecentResult[], teamName: string): strin
 export function lineupSummaryTextFm(lineup: FmTeamLineup | undefined, teamName: string): string {
   if (!lineup) return `${teamName}: 공식 라인업 미발표`;
   const names = lineup.starters.map((s) => s.name).join(', ');
-  return `${teamName} 예상 포메이션 ${lineup.formation ?? '?'}: ${names}`;
+  const missing = lineup.unavailable ?? [];
+  const missingNote = missing.length > 0 ? ` (결장: ${missing.map((p) => p.name).join(', ')})` : '';
+  return `${teamName} 예상 포메이션 ${lineup.formation ?? '?'}${missingNote}: ${names}`;
 }
 
 // Which current-fixture starters (either side) also started or subbed in the

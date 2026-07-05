@@ -45,6 +45,11 @@
 .score .dash { color: var(--fg-3); font-size: 20px; }
 .score-predicted-sub { text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); margin-top: 2px; }
 
+.score-compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-6); }
+.score-compare-card { text-align: center; }
+.score-compare-value { font-family: var(--font-display); font-size: 30px; color: var(--fg-1); letter-spacing: 0.02em; }
+.score-compare-value .dash { color: var(--fg-3); font-size: 18px; margin: 0 8px; }
+
 .probbar { display: flex; height: 6px; border-radius: var(--radius-full); overflow: hidden; background: var(--bg-elevated); margin-bottom: 6px; }
 .probseg { height: 100%; transition: width var(--duration-normal) var(--ease-out); }
 .problabels { display: grid; grid-template-columns: 1fr 1fr 1fr; font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); margin-bottom: var(--space-4); }
