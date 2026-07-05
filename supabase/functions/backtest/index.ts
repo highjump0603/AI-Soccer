@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
       const requestedLeague = normalizeLeagueName(body.league);
       const { data: fixtures, error } = await supabase
         .from('fixtures')
-        .select('fotmob_id, league, season, kickoff_at, home_score_actual, away_score_actual, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
+        .select('fotmob_id, status, league, season, kickoff_at, home_score_actual, away_score_actual, home_team:home_team_id(id, name), away_team:away_team_id(id, name)')
         .order('kickoff_at', { ascending: false })
         .limit(Math.max(200, (body.count ?? 5) * 20));
       if (error) throw error;
@@ -194,7 +194,7 @@ Deno.serve(async (req) => {
           home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '', score: fixture.home_score_actual ?? null },
           away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '', score: fixture.away_score_actual ?? null },
           status: { finished: true, utcTime: fixture.kickoff_at },
-          leagueName: fixture.league ?? requestedLeague || body.league,
+          leagueName: fixture.league ?? (requestedLeague || body.league),
         } as BacktestTarget);
       }
     } else {
