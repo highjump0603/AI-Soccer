@@ -161,7 +161,7 @@ Deno.serve(async (req) => {
         .slice(0, body.count ?? 5);
       targets.push(...finished);
     } else if (body.league) {
-      const seasonYear = body.season ?? new Date().getUTCFullYear();
+      const requestedSeason = body.season ?? new Date().getUTCFullYear();
       const requestedLeague = normalizeLeagueName(body.league);
       const { data: fixtures, error } = await supabase
         .from('fixtures')
@@ -181,19 +181,25 @@ Deno.serve(async (req) => {
 
       const matchingFixtures = normalizedFixtures.filter((fixture) => {
         const fixtureLeague = normalizeLeagueName(fixture.league);
-        const sameSeason = fixture.season == null || Number(fixture.season) === Number(seasonYear) || String(fixture.season ?? '') === String(seasonYear);
+        const sameSeason = fixture.season == null || Number(fixture.season) === Number(requestedSeason) || String(fixture.season ?? '') === String(requestedSeason);
         const sameLeague = !requestedLeague || fixtureLeague === requestedLeague;
         return sameSeason && sameLeague;
       });
 
-      const resolvedFixtures = requestedLeague ? matchingFixtures : normalizedFixtures;
+      const fallbackFixtures = matchingFixtures.length > 0 ? matchingFixtures : normalizedFixtures.filter((fixture) => {
+        const fixtureLeague = normalizeLeagueName(fixture.league);
+        const sameLeague = !requestedLeague || fixtureLeague === requestedLeague;
+        return sameLeague;
+      });
+
+      const resolvedFixtures = requestedLeague ? fallbackFixtures : normalizedFixtures;
 
       if (resolvedFixtures.length === 0) {
         return new Response(JSON.stringify({
           ok: true,
           processed: 0,
           results: {},
-          message: `선택한 리그/시즌(${body.league}/${seasonYear})에 종료된 경기 데이터가 아직 없습니다. 리그 동기화를 다시 실행하거나 다른 시즌을 선택해 주세요.`,
+          message: `선택한 리그/시즌(${body.league}/${requestedSeason})에 종료된 경기 데이터가 아직 없습니다. 리그 동기화를 다시 실행하거나 다른 시즌을 선택해 주세요.`,
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
