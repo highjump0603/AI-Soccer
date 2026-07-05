@@ -146,6 +146,7 @@ footer { border-top: 1px solid var(--border-subtle); padding: var(--space-10) 0;
 .mini-btn.danger:hover { border-color: var(--color-error); color: var(--color-error); }
 .backtest-pagination { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: var(--space-4); flex-wrap: wrap; }
 .backtest-pagination__status { font-size: 13px; color: var(--fg-3); min-width: 56px; text-align: center; }
+.backtest-analysis-cell { max-width: 360px; white-space: normal; overflow-wrap: break-word; word-break: keep-all; line-height: 1.5; }
 
 .state-msg { font-size: 13px; color: var(--fg-3); padding: var(--space-8) 0; }
 .state-msg.error { color: var(--color-error); }
