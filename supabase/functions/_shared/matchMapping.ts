@@ -212,32 +212,65 @@ export function estimateLineupFm(recentLineups: FmTeamLineup[], unavailableIds: 
   // contradicting the formation label shown right above it.
   const midSegments = segments.length > 2 ? segments.slice(1, -1) : [Math.max(0, 10 - dfCount - fwCount)];
 
-  type Stat = { name: string; number?: number; group: PosGroup; count: number; lastSeen: number };
+  // usualPlayingPositionId alone isn't fine-grained enough to tell a lone
+  // central striker apart from the wide players in a "3" attacking-mid
+  // band — FotMob classifies both as group F (forward) in some squads,
+  // confirmed live: France's front four (a striker + a front three) all
+  // came back usualPlayingPositionId=3. horizontalLayout.x (0=own goal,
+  // 1=opponent's) is a much sharper signal for that specific distinction,
+  // since the actual central striker consistently sits further forward
+  // (deeper into the opponent's half) than the supporting attackers — so
+  // track each player's average x and use it to break ties within the F
+  // group, letting the genuinely most-advanced player fill the lone
+  // striker slot instead of whoever happens to have the highest raw
+  // appearance count.
+  type Stat = { name: string; number?: number; group: PosGroup; count: number; lastSeen: number; xSum: number; xCount: number };
   const stats = new Map<number, Stat>();
   recentLineups.forEach((l, idx) => {
     for (const s of l.starters) {
       if (unavailableIds.has(s.id)) continue;
       const recency = recentLineups.length - idx;
+      const x = s.horizontalLayout?.x;
       const existing = stats.get(s.id);
       const shirtNumber = s.shirtNumber != null ? Number(s.shirtNumber) : undefined;
       if (existing) {
         existing.count += 1;
         existing.lastSeen = Math.max(existing.lastSeen, recency);
+        if (x != null) {
+          existing.xSum += x;
+          existing.xCount += 1;
+        }
       } else {
-        stats.set(s.id, { name: s.name, number: shirtNumber, group: posGroupFm(s.usualPlayingPositionId), count: 1, lastSeen: recency });
+        stats.set(s.id, {
+          name: s.name,
+          number: shirtNumber,
+          group: posGroupFm(s.usualPlayingPositionId),
+          count: 1,
+          lastSeen: recency,
+          xSum: x ?? 0,
+          xCount: x != null ? 1 : 0,
+        });
       }
     }
   });
 
-  const byGroup: Record<PosGroup, { id: number; name: string; number?: number; count: number; lastSeen: number }[]> = {
+  const avgX = (v: Stat) => (v.xCount > 0 ? v.xSum / v.xCount : null);
+
+  const byGroup: Record<PosGroup, { id: number; name: string; number?: number; count: number; lastSeen: number; avgX: number | null }[]> = {
     G: [],
     D: [],
     M: [],
     F: [],
   };
-  for (const [id, v] of stats.entries()) byGroup[v.group].push({ id, name: v.name, number: v.number, count: v.count, lastSeen: v.lastSeen });
+  for (const [id, v] of stats.entries()) byGroup[v.group].push({ id, name: v.name, number: v.number, count: v.count, lastSeen: v.lastSeen, avgX: avgX(v) });
   for (const group of Object.keys(byGroup) as PosGroup[]) {
-    byGroup[group].sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen);
+    if (group === 'F') {
+      // Most-advanced-first, falling back to count/recency for players with
+      // no coordinate data (older/sparser lineup snapshots).
+      byGroup[group].sort((a, b) => (b.avgX ?? -1) - (a.avgX ?? -1) || b.count - a.count || b.lastSeen - a.lastSeen);
+    } else {
+      byGroup[group].sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen);
+    }
   }
 
   const wanted: { group: PosGroup; count: number }[] = [
