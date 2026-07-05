@@ -266,27 +266,34 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
   }
   const toDecimalOdds = (probPct: number) => (probPct > 0 ? Math.round((100 / probPct) * 100) / 100 : null);
 
-  // Surface the tactical nudges (formation shape, missing players) as
+  // Surface the tactical inputs (formation shape, missing players) as
   // explicit factors alongside GPT's, so it's visible in the UI that
   // they're actually being considered rather than silently folded into a
-  // number nobody sees.
+  // number nobody sees. Always included when a formation is known — even a
+  // neutral/balanced one or an empty missing-player list — so the reasoning
+  // is transparent for every prediction, not just the cases with a big skew.
   const tacticalFactors: string[] = [];
   const homeFormationUsed = lineups?.home.formation ?? fixture.home_formation;
   const awayFormationUsed = lineups?.away.formation ?? fixture.away_formation;
   const homeFormationMult = formationAttackMultiplier(homeFormationUsed);
   const awayFormationMult = formationAttackMultiplier(awayFormationUsed);
-  const homeAvailabilityMult = availabilityMultiplier(lineups?.home.unavailable?.length ?? 0);
-  const awayAvailabilityMult = availabilityMultiplier(lineups?.away.unavailable?.length ?? 0);
+  const homeUnavailable = lineups?.home.unavailable ?? [];
+  const awayUnavailable = lineups?.away.unavailable ?? [];
 
-  if (homeFormationMult > 1.02) tacticalFactors.push(`${fixture.home_team.name}의 공격적인 포메이션(${homeFormationUsed})이 득점 기대치를 높임`);
-  else if (homeFormationMult < 0.98) tacticalFactors.push(`${fixture.home_team.name}의 수비적인 포메이션(${homeFormationUsed})이 득점 기대치를 낮춤`);
-  if (awayFormationMult > 1.02) tacticalFactors.push(`${fixture.away_team.name}의 공격적인 포메이션(${awayFormationUsed})이 득점 기대치를 높임`);
-  else if (awayFormationMult < 0.98) tacticalFactors.push(`${fixture.away_team.name}의 수비적인 포메이션(${awayFormationUsed})이 득점 기대치를 낮춤`);
-  if (homeAvailabilityMult < 1 && (lineups?.home.unavailable?.length ?? 0) > 0) {
-    tacticalFactors.push(`${fixture.home_team.name} 결장: ${lineups!.home.unavailable!.map((p) => p.name).join(', ')}`);
+  const formationTendency = (mult: number) => (mult > 1.02 ? '공격적' : mult < 0.98 ? '수비적' : '균형잡힌');
+  if (homeFormationUsed) {
+    tacticalFactors.push(`${fixture.home_team.name} 포메이션 ${homeFormationUsed} (${formationTendency(homeFormationMult)} 성향)`);
   }
-  if (awayAvailabilityMult < 1 && (lineups?.away.unavailable?.length ?? 0) > 0) {
-    tacticalFactors.push(`${fixture.away_team.name} 결장: ${lineups!.away.unavailable!.map((p) => p.name).join(', ')}`);
+  if (awayFormationUsed) {
+    tacticalFactors.push(`${fixture.away_team.name} 포메이션 ${awayFormationUsed} (${formationTendency(awayFormationMult)} 성향)`);
+  }
+  if (lineups) {
+    tacticalFactors.push(
+      homeUnavailable.length > 0 ? `${fixture.home_team.name} 결장: ${homeUnavailable.map((p) => p.name).join(', ')}` : `${fixture.home_team.name} 결장 선수 없음`
+    );
+    tacticalFactors.push(
+      awayUnavailable.length > 0 ? `${fixture.away_team.name} 결장: ${awayUnavailable.map((p) => p.name).join(', ')}` : `${fixture.away_team.name} 결장 선수 없음`
+    );
   }
 
   const { error } = await supabase.from('predictions').upsert(
