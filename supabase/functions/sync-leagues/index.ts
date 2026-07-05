@@ -11,6 +11,7 @@ import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
 import { getFixturesByDate, type FmMatch } from '../_shared/fotmob.ts';
 import { TRACKED_LEAGUES } from '../_shared/leagues.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
+import { requireAdmin } from '../_shared/auth.ts';
 
 const DAYS_AHEAD = 5;
 
@@ -80,6 +81,9 @@ function dateStringsAhead(days: number) {
 Deno.serve(async (req) => {
   const preflight = handleCors(req);
   if (preflight) return preflight;
+
+  const unauthorized = await requireAdmin(req);
+  if (unauthorized) return unauthorized;
 
   const supabase = getSupabaseAdmin();
   const perLeagueCount: Record<string, number> = {};

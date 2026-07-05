@@ -13,8 +13,16 @@ import {
 } from '../lib/fixtures';
 import { confidenceMeta } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { signIn, signOut, getSession, onAuthStateChange } from '../lib/auth';
 
 export default function Admin() {
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+
   const [fixtures, setFixtures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -49,12 +57,24 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      setAuthChecked(true);
+      return;
+    }
+    getSession()
+      .then((s) => setSession(s))
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+    return onAuthStateChange((s) => setSession(s));
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !session) return;
     loadBacktestResults();
     listBacktestLeagues()
       .then(setBacktestLeagues)
       .catch(() => {});
-  }, [loadBacktestResults]);
+  }, [loadBacktestResults, session]);
 
   async function handleRunBacktest() {
     if (!backtestLeague) return;
@@ -96,8 +116,32 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
+    if (!session) return;
     load();
-  }, [load]);
+  }, [load, session]);
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setLoginBusy(true);
+    setLoginError('');
+    try {
+      const newSession = await signIn(loginEmail.trim(), loginPassword);
+      setSession(newSession);
+      setLoginPassword('');
+    } catch (err) {
+      setLoginError(err.message || '로그인에 실패했습니다.');
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await signOut();
+    } finally {
+      setSession(null);
+    }
+  }
 
   async function handleSync() {
     setSyncing(true);
@@ -162,6 +206,62 @@ export default function Admin() {
     }
   }
 
+  if (!authChecked) {
+    return (
+      <div className="wrap admin-page">
+        <div className="state-msg">확인 중...</div>
+      </div>
+    );
+  }
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="wrap admin-page">
+        <div className="state-msg error">Supabase가 아직 연결되지 않았어요. .env.example을 참고해 .env 파일을 설정해주세요.</div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="wrap admin-page">
+        <div className="section-head">
+          <div>
+            <span className="section-num">관리자 —</span>
+            <h2 className="section-title">로그인</h2>
+          </div>
+          <div className="section-desc">추적 경기 관리 및 백테스팅 기능은 관리자 로그인 후 사용할 수 있습니다.</div>
+        </div>
+        <form onSubmit={handleLogin} style={{ display: 'grid', gap: 'var(--space-4)', maxWidth: 320 }}>
+          <label className="admin-field">
+            이메일
+            <input
+              type="email"
+              autoComplete="username"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              required
+            />
+          </label>
+          <label className="admin-field">
+            비밀번호
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              required
+            />
+          </label>
+          {loginError && <div className="state-msg error">{loginError}</div>}
+          <Button type="submit" variant="primary" size="md" disabled={loginBusy}>
+            {loginBusy ? '로그인 중...' : '로그인'}
+          </Button>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div className="wrap admin-page">
       <div className="section-head">
@@ -173,6 +273,9 @@ export default function Admin() {
           경기 데이터는 FotMob + GPT가 자동으로 계산합니다. 새 경기 발견과 예측 갱신은 정기적으로 자동 실행되며,
           여기서 즉시 실행할 수도 있습니다.
         </div>
+        <Button variant="secondary" size="sm" onClick={handleLogout}>
+          로그아웃
+        </Button>
       </div>
 
       <div className="admin-actions" style={{ marginBottom: 'var(--space-8)' }}>

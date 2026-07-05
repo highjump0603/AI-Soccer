@@ -12,12 +12,20 @@ async function invokeEdgeFunction(name, body = {}) {
       throw error;
     }
 
+    // Prefer the signed-in admin's own access token over the anon key so
+    // admin-only functions (sync-leagues, predict-due, untrack-fixture,
+    // backtest, clear-backtest-results) still authorize correctly even
+    // when supabase-js's own invoke() call fails for an unrelated reason
+    // (e.g. CORS) and this fetch fallback kicks in.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token ?? anonKey;
+
     const response = await fetch(`${url.replace(/\/$/, '')}/functions/v1/${name}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(body ?? {}),
     });

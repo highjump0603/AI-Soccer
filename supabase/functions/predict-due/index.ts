@@ -20,6 +20,7 @@ import { getMatchStats, getMatchDetails, getMatchOdds1xBet } from '../_shared/fo
 import { getGptPrediction } from '../_shared/openai.ts';
 import { cacheTeamRecentResultsFm, upsertPlayerAndLineupFm } from '../_shared/cache.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
+import { requireAdmin } from '../_shared/auth.ts';
 import { h2hDetailRowsFm } from '../_shared/matchMapping.ts';
 import { gatherPredictionInputs } from '../_shared/predictionInputs.ts';
 
@@ -247,6 +248,9 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
 Deno.serve(async (req) => {
   const preflight = handleCors(req);
   if (preflight) return preflight;
+
+  const unauthorized = await requireAdmin(req);
+  if (unauthorized) return unauthorized;
 
   const supabase = getSupabaseAdmin();
   let forcedFixtureId: number | undefined;

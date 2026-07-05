@@ -17,6 +17,7 @@ import { getFixturesByDate, getMatchDetails, getTeamFixtures, type FmMatch } fro
 import { getGptPrediction, getBacktestAnalysis } from '../_shared/openai.ts';
 import { gatherPredictionInputs } from '../_shared/predictionInputs.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
+import { requireAdmin } from '../_shared/auth.ts';
 import { TRACKED_LEAGUES } from '../_shared/leagues.ts';
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
@@ -183,6 +184,9 @@ async function backtestOneMatch(supabase: Supabase, m: BacktestTarget) {
 Deno.serve(async (req) => {
   const preflight = handleCors(req);
   if (preflight) return preflight;
+
+  const unauthorized = await requireAdmin(req);
+  if (unauthorized) return unauthorized;
 
   const supabase = getSupabaseAdmin();
   let body: { matchId?: number; teamId?: number; league?: string; season?: number; count?: number } = {};
