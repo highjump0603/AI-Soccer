@@ -1,10 +1,11 @@
 // The core pipeline: for each fixture that needs a (re)prediction, pull
-// team form + head-to-head + lineups + match stats from FotMob, run the
-// Poisson statistical model, get GPT's independent read, ensemble the two,
-// and upsert the result into `predictions`. Bookmaker odds come from a
+// team form + head-to-head + lineups + match stats + standings from
+// FotMob and hand all of it to GPT, which produces the final score and
+// probabilities directly — there's no separate statistical model blended
+// in afterward; GPT's read *is* the prediction. Bookmaker odds come from a
 // separate, best-effort FotMob 1xBet odds call (see _shared/fotmob.ts's
-// getMatchOdds1xBet)
-// wrapped in its own try/catch so its absence never breaks a prediction.
+// getMatchOdds1xBet), wrapped in its own try/catch so its absence never
+// breaks a prediction.
 //
 // Two ways to invoke:
 //   - POST {} (or via cron)         -> processes whatever's "due" (bounded
@@ -22,21 +23,13 @@ import {
   getTeamFixtures,
   mostRecentFinished,
   getMatchOdds1xBet,
+  getLeagueTable,
 } from '../_shared/fotmob.ts';
-import { runPoissonModel, computeTacticalStrength, formationAttackMultiplier, availabilityMultiplier } from '../_shared/poisson.ts';
+import { averageGoalsFor, averageGoalsAgainst } from '../_shared/poisson.ts';
 import { getGptPrediction } from '../_shared/openai.ts';
-import { ensemblePredictions } from '../_shared/ensemble.ts';
 import { cacheTeamRecentResultsFm, upsertPlayerAndLineupFm } from '../_shared/cache.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
-import {
-  mapRecentResultsFm,
-  attachXgFm,
-  alignH2hForModelFm,
-  h2hResultLettersFm,
-  h2hDetailRowsFm,
-  formSummaryText,
-  lineupSummaryTextFm,
-} from '../_shared/matchMapping.ts';
+import { mapRecentResultsFm, attachXgFm, h2hResultLettersFm, h2hDetailRowsFm, lineupSummaryTextFm, formSummaryText } from '../_shared/matchMapping.ts';
 
 type PlayerNote = { player: string; team: string; meetings: { date: string; result: string }[] };
 
@@ -52,6 +45,7 @@ type Supabase = ReturnType<typeof getSupabaseAdmin>;
 type FixtureRow = {
   id: number;
   fotmob_id: number;
+  fotmob_league_id: number | null;
   league: string;
   kickoff_at: string;
   home_formation: string | null;
@@ -61,7 +55,7 @@ type FixtureRow = {
 };
 
 const FIXTURE_SELECT =
-  'id, fotmob_id, league, kickoff_at, home_formation, away_formation, home_team:home_team_id(id, fotmob_id, name), away_team:away_team_id(id, fotmob_id, name)';
+  'id, fotmob_id, fotmob_league_id, league, kickoff_at, home_formation, away_formation, home_team:home_team_id(id, fotmob_id, name), away_team:away_team_id(id, fotmob_id, name)';
 
 async function findDueFixtures(supabase: Supabase, forcedFixtureId?: number): Promise<FixtureRow[]> {
   if (forcedFixtureId != null) {
@@ -99,6 +93,20 @@ async function findDueFixtures(supabase: Supabase, forcedFixtureId?: number): Pr
   return due.slice(0, MAX_PER_RUN).map((x) => x.fixture);
 }
 
+// Days since a team's most recent finished match before this fixture's
+// kickoff — a simple, team-level fatigue proxy (no per-player minutes-
+// played data available). A short turnaround (<=3 days, common in cup
+// congestion) is flagged as a fatigue risk.
+function restNote(recentMatches: { status?: { utcTime?: string; finished?: boolean } }[], kickoffAt: string, teamName: string): string {
+  const finished = recentMatches
+    .filter((m) => m.status?.finished && m.status?.utcTime)
+    .sort((a, b) => new Date(b.status!.utcTime!).getTime() - new Date(a.status!.utcTime!).getTime());
+  if (finished.length === 0) return `${teamName}: 최근 경기 기록 없음`;
+  const daysSince = Math.round((new Date(kickoffAt).getTime() - new Date(finished[0].status!.utcTime!).getTime()) / 86400000);
+  const risk = daysSince <= 3 ? ' (연속 경기로 피로 누적 가능성 있음)' : '';
+  return `${teamName}: 직전 경기로부터 ${daysSince}일 휴식${risk}`;
+}
+
 async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
   const homeId = fixture.home_team.fotmob_id;
   const awayId = fixture.away_team.fotmob_id;
@@ -112,25 +120,33 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
     cacheTeamRecentResultsFm(supabase, fixture.away_team.id, awayId, awayRecentMatches).catch(() => {}),
   ]);
 
-  // Best-effort xG enrichment: only fixtures we've personally tracked
+  // Best-effort xG/cards enrichment: only fixtures we've personally tracked
   // before have cached match_stats, so this is sparse at first and fills in
   // over time as more of a team's matches pass through this same pipeline.
   const candidateFotmobIds = [...homeRecentMatches, ...awayRecentMatches].map((m) => m.id);
   const xgByFotmobMatchId = new Map<number, { home: number; away: number }>();
+  const cardsByFotmobMatchId = new Map<number, { home: number; away: number }>();
   if (candidateFotmobIds.length > 0) {
     const { data: cachedFixtures } = await supabase.from('fixtures').select('id, fotmob_id').in('fotmob_id', candidateFotmobIds);
     const fixtureIdToFotmobId = new Map((cachedFixtures ?? []).map((f) => [f.id, f.fotmob_id as number]));
     if (fixtureIdToFotmobId.size > 0) {
       const { data: statRows } = await supabase
         .from('match_stats')
-        .select('fixture_id, home_value, away_value')
+        .select('fixture_id, stat_key, home_value, away_value')
         .in('fixture_id', [...fixtureIdToFotmobId.keys()])
-        .eq('stat_key', 'expected_goals');
+        .in('stat_key', ['expected_goals', 'yellow_cards', 'red_cards']);
       for (const row of statRows ?? []) {
         const fotmobId = fixtureIdToFotmobId.get(row.fixture_id);
+        if (!fotmobId) continue;
         const home = Number(row.home_value);
         const away = Number(row.away_value);
-        if (fotmobId && Number.isFinite(home) && Number.isFinite(away)) xgByFotmobMatchId.set(fotmobId, { home, away });
+        if (!Number.isFinite(home) || !Number.isFinite(away)) continue;
+        if (row.stat_key === 'expected_goals') {
+          xgByFotmobMatchId.set(fotmobId, { home, away });
+        } else {
+          const existing = cardsByFotmobMatchId.get(fotmobId) ?? { home: 0, away: 0 };
+          cardsByFotmobMatchId.set(fotmobId, { home: existing.home + home, away: existing.away + away });
+        }
       }
     }
   }
@@ -138,10 +154,22 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
   const homeRecent = attachXgFm(mapRecentResultsFm(homeRecentMatches, homeId), homeRecentMatches, homeId, xgByFotmobMatchId);
   const awayRecent = attachXgFm(mapRecentResultsFm(awayRecentMatches, awayId), awayRecentMatches, awayId, xgByFotmobMatchId);
 
+  const discipline = (matches: typeof homeRecentMatches, teamId: number, teamName: string) => {
+    const cardCounts = matches
+      .map((m) => {
+        const c = cardsByFotmobMatchId.get(m.id);
+        if (!c) return null;
+        return m.home.id === teamId ? c.home : c.away;
+      })
+      .filter((n): n is number => n != null);
+    if (cardCounts.length === 0) return `${teamName}: 카드 기록 없음`;
+    const avg = cardCounts.reduce((a, b) => a + b, 0) / cardCounts.length;
+    return `${teamName}: 최근 ${cardCounts.length}경기 평균 ${avg.toFixed(1)}장`;
+  };
+
   const details = await getMatchDetails(fixture.fotmob_id);
 
   const h2h = getHeadToHead(details);
-  const h2hForModel = alignH2hForModelFm(h2h, fixture.home_team.name);
   const h2hLetters = h2hResultLettersFm(h2h, fixture.home_team.name);
   await supabase.from('fixtures').update({ quick_h2h_detail: h2hDetailRowsFm(h2h) }).eq('id', fixture.id);
 
@@ -158,10 +186,10 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
       .eq('id', fixture.id);
   }
 
-  // Match stats (xG, shots, possession, ...) only exist once the game has
-  // started — no-op before kickoff, filled in naturally by a later run
-  // thanks to POST_KICKOFF_STATS_WINDOW_MS keeping this fixture "due" for a
-  // while after its scheduled kickoff.
+  // Match stats (xG, shots, possession, cards, ...) only exist once the
+  // game has started — no-op before kickoff, filled in naturally by a
+  // later run thanks to POST_KICKOFF_STATS_WINDOW_MS keeping this fixture
+  // "due" for a while after its scheduled kickoff.
   const stats = getMatchStats(details);
   if (stats.length > 0) {
     // Dedupe by stat_key: FotMob's stat sections aren't guaranteed disjoint
@@ -190,35 +218,36 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
   // expose one, only team/score/date. There's no confirmed cheap way to
   // resolve it, so this feature is dropped rather than guessed at (flagged
   // as an accepted capability loss in the migration plan doc).
-  const lineupOverlapRatio: number | null = null;
   const playerNotes: PlayerNote[] = [];
 
-  const h2hWeight = lineupOverlapRatio != null ? 0.05 + 0.1 * lineupOverlapRatio : 0.1;
+  // Reference expected goals — purely a text hint fed into GPT's prompt,
+  // not a separate model whose output competes with GPT's own. Derived
+  // the same way the old Poisson model did (recent scoring/conceding rates,
+  // preferring real xG over raw goals when we have it cached).
+  const homeXgRef = (averageGoalsFor(homeRecent, 'home') + averageGoalsAgainst(awayRecent, 'away')) / 2;
+  const awayXgRef = (averageGoalsFor(awayRecent, 'away') + averageGoalsAgainst(homeRecent, 'home')) / 2;
 
-  // Tactical nudge: formation shape (attacking vs defensive) + missing
-  // (injured/suspended) starters, folded into a small xG multiplier per
-  // side. Only computed once a lineup (official, from this call's
-  // getMatchDetails) is out — before that we fall back to whatever
-  // formation estimate-lineup last stored on the fixture row, with no
-  // availability signal (that data only comes bundled with an official
-  // lineup) — see computeTacticalStrength in _shared/poisson.ts.
-  const homeTacticalStrength = computeTacticalStrength(
-    lineups?.home.formation ?? fixture.home_formation,
-    lineups?.home.unavailable?.length ?? 0
-  );
-  const awayTacticalStrength = computeTacticalStrength(
-    lineups?.away.formation ?? fixture.away_formation,
-    lineups?.away.unavailable?.length ?? 0
-  );
+  const homeFormationUsed = lineups?.home.formation ?? fixture.home_formation;
+  const awayFormationUsed = lineups?.away.formation ?? fixture.away_formation;
+  const homeUnavailable = lineups?.home.unavailable ?? [];
+  const awayUnavailable = lineups?.away.unavailable ?? [];
 
-  const stat = runPoissonModel({
-    homeRecent,
-    awayRecent,
-    h2h: h2hForModel,
-    h2hWeight,
-    homeLineupStrength: homeTacticalStrength,
-    awayLineupStrength: awayTacticalStrength,
-  });
+  // League standings — best-effort, only meaningful once the league's
+  // table has some played matches (pre-season it's all zeros).
+  let homeStandingNote = `${fixture.home_team.name}: 순위 정보 없음`;
+  let awayStandingNote = `${fixture.away_team.name}: 순위 정보 없음`;
+  if (fixture.fotmob_league_id) {
+    try {
+      const table = await getLeagueTable(fixture.fotmob_league_id);
+      const allRows = table.groups.flatMap((g) => g.rows);
+      const homeRow = allRows.find((r) => r.id === homeId);
+      const awayRow = allRows.find((r) => r.id === awayId);
+      if (homeRow) homeStandingNote = `${fixture.home_team.name}: ${homeRow.idx}위 (승점 ${homeRow.pts}, ${homeRow.played}경기)`;
+      if (awayRow) awayStandingNote = `${fixture.away_team.name}: ${awayRow.idx}위 (승점 ${awayRow.pts}, ${awayRow.played}경기)`;
+    } catch {
+      // best-effort — leave the "no data" note in place
+    }
+  }
 
   let gpt;
   try {
@@ -232,30 +261,27 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
       h2hSummary: h2hLetters.length ? `최근 ${h2hLetters.length}회 맞대결 (홈팀 기준, 최신순): ${h2hLetters.join(', ')}` : '최근 맞대결 기록 없음',
       homeLineupSummary: lineupSummaryTextFm(lineups?.home, fixture.home_team.name),
       awayLineupSummary: lineupSummaryTextFm(lineups?.away, fixture.away_team.name),
+      homeFormationNote: homeFormationUsed ?? '알 수 없음',
+      awayFormationNote: awayFormationUsed ?? '알 수 없음',
+      homeFatigueNote: restNote(homeRecentMatches, fixture.kickoff_at, fixture.home_team.name),
+      awayFatigueNote: restNote(awayRecentMatches, fixture.kickoff_at, fixture.away_team.name),
+      homeDisciplineNote: discipline(homeRecentMatches, homeId, fixture.home_team.name),
+      awayDisciplineNote: discipline(awayRecentMatches, awayId, fixture.away_team.name),
+      homeStandingNote,
+      awayStandingNote,
+      referenceXg: `홈 ${homeXgRef.toFixed(2)} / 원정 ${awayXgRef.toFixed(2)}`,
     });
   } catch (e) {
-    // If GPT is unavailable for any reason, fall back to the stat model
-    // alone rather than failing the whole prediction — confidence caps at
-    // 'medium' in ensemblePredictions when both sides trivially "agree".
-    gpt = {
-      probHome: stat.probHome,
-      probDraw: stat.probDraw,
-      probAway: stat.probAway,
-      scoreHome: stat.scoreHome,
-      scoreAway: stat.scoreAway,
-      factors: [`GPT 예측 실패로 통계 모델 결과만 사용됨 (${e instanceof Error ? e.message : String(e)})`],
-      summary: '',
-    };
+    // If GPT is unavailable there's no fallback model anymore — surface the
+    // failure so the caller sees it rather than silently upserting a bogus
+    // 0-0/33-33-33 row.
+    throw new Error(`GPT prediction failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  const ensemble = ensemblePredictions({
-    statXgHome: stat.xgHome,
-    statXgAway: stat.xgAway,
-    statProbs: { home: stat.probHome, draw: stat.probDraw, away: stat.probAway },
-    gptXgHome: gpt.scoreHome,
-    gptXgAway: gpt.scoreAway,
-    gptProbs: { home: gpt.probHome, draw: gpt.probDraw, away: gpt.probAway },
-  });
+  // Confidence purely from how decisive GPT's own top probability is (no
+  // second model left to check agreement against).
+  const topProb = Math.max(gpt.probHome, gpt.probDraw, gpt.probAway);
+  const confidence: 'high' | 'medium' | 'low' = topProb >= 50 ? 'high' : topProb >= 40 ? 'medium' : 'low';
 
   let bookOdds: { home: number; draw: number; away: number } | null = null;
   try {
@@ -266,27 +292,12 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
   }
   const toDecimalOdds = (probPct: number) => (probPct > 0 ? Math.round((100 / probPct) * 100) / 100 : null);
 
-  // Surface the tactical inputs (formation shape, missing players) as
-  // explicit factors alongside GPT's, so it's visible in the UI that
-  // they're actually being considered rather than silently folded into a
-  // number nobody sees. Always included when a formation is known — even a
-  // neutral/balanced one or an empty missing-player list — so the reasoning
-  // is transparent for every prediction, not just the cases with a big skew.
+  // Surface the tactical inputs (formation, missing players) as explicit
+  // factors alongside GPT's own, so the reasoning is visible for every
+  // prediction rather than buried in the prompt only.
   const tacticalFactors: string[] = [];
-  const homeFormationUsed = lineups?.home.formation ?? fixture.home_formation;
-  const awayFormationUsed = lineups?.away.formation ?? fixture.away_formation;
-  const homeFormationMult = formationAttackMultiplier(homeFormationUsed);
-  const awayFormationMult = formationAttackMultiplier(awayFormationUsed);
-  const homeUnavailable = lineups?.home.unavailable ?? [];
-  const awayUnavailable = lineups?.away.unavailable ?? [];
-
-  const formationTendency = (mult: number) => (mult > 1.02 ? '공격적' : mult < 0.98 ? '수비적' : '균형잡힌');
-  if (homeFormationUsed) {
-    tacticalFactors.push(`${fixture.home_team.name} 포메이션 ${homeFormationUsed} (${formationTendency(homeFormationMult)} 성향)`);
-  }
-  if (awayFormationUsed) {
-    tacticalFactors.push(`${fixture.away_team.name} 포메이션 ${awayFormationUsed} (${formationTendency(awayFormationMult)} 성향)`);
-  }
+  if (homeFormationUsed) tacticalFactors.push(`${fixture.home_team.name} 포메이션 ${homeFormationUsed}`);
+  if (awayFormationUsed) tacticalFactors.push(`${fixture.away_team.name} 포메이션 ${awayFormationUsed}`);
   if (lineups) {
     tacticalFactors.push(
       homeUnavailable.length > 0 ? `${fixture.home_team.name} 결장: ${homeUnavailable.map((p) => p.name).join(', ')}` : `${fixture.home_team.name} 결장 선수 없음`
@@ -300,35 +311,35 @@ async function predictOneFixture(supabase: Supabase, fixture: FixtureRow) {
     {
       fixture_id: fixture.id,
       generated_at: new Date().toISOString(),
-      stat_prob_home: stat.probHome,
-      stat_prob_draw: stat.probDraw,
-      stat_prob_away: stat.probAway,
-      stat_score_home: stat.scoreHome,
-      stat_score_away: stat.scoreAway,
-      stat_xg_home: stat.xgHome,
-      stat_xg_away: stat.xgAway,
+      stat_prob_home: null,
+      stat_prob_draw: null,
+      stat_prob_away: null,
+      stat_score_home: null,
+      stat_score_away: null,
+      stat_xg_home: homeXgRef,
+      stat_xg_away: awayXgRef,
       gpt_prob_home: gpt.probHome,
       gpt_prob_draw: gpt.probDraw,
       gpt_prob_away: gpt.probAway,
       gpt_score_home: gpt.scoreHome,
       gpt_score_away: gpt.scoreAway,
       gpt_summary: gpt.summary,
-      final_prob_home: ensemble.finalProbs.home,
-      final_prob_draw: ensemble.finalProbs.draw,
-      final_prob_away: ensemble.finalProbs.away,
-      final_score_home: ensemble.finalScore.home,
-      final_score_away: ensemble.finalScore.away,
-      confidence: ensemble.confidence,
+      final_prob_home: gpt.probHome,
+      final_prob_draw: gpt.probDraw,
+      final_prob_away: gpt.probAway,
+      final_score_home: gpt.scoreHome,
+      final_score_away: gpt.scoreAway,
+      confidence,
       factors: [...tacticalFactors, ...gpt.factors],
       h2h: h2hLetters,
       player_notes: playerNotes,
       odds_book_home: bookOdds?.home ?? null,
       odds_book_draw: bookOdds?.draw ?? null,
       odds_book_away: bookOdds?.away ?? null,
-      odds_ai_home: toDecimalOdds(ensemble.finalProbs.home),
-      odds_ai_draw: toDecimalOdds(ensemble.finalProbs.draw),
-      odds_ai_away: toDecimalOdds(ensemble.finalProbs.away),
-      raw_inputs: { homeRecent, awayRecent, h2hForModel, lineupOverlapRatio, homeTacticalStrength, awayTacticalStrength, gptRaw: gpt },
+      odds_ai_home: toDecimalOdds(gpt.probHome),
+      odds_ai_draw: toDecimalOdds(gpt.probDraw),
+      odds_ai_away: toDecimalOdds(gpt.probAway),
+      raw_inputs: { homeRecent, awayRecent, homeXgRef, awayXgRef, homeStandingNote, awayStandingNote, gptRaw: gpt },
     },
     { onConflict: 'fixture_id' }
   );
