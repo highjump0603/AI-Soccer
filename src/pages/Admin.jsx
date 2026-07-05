@@ -381,10 +381,12 @@ function BacktestSummary({ results }) {
       return top >= band.min && top <= band.max;
     });
     const hits = matches.filter((r) => r.outcome_correct).length;
+    const bandTotal = matches.length;
+    const bandHitRate = bandTotal > 0 ? Math.round((hits / bandTotal) * 100) : 0;
     return {
       ...band,
-      total: matches.length,
-      hitRate: matches.length > 0 ? pct(hits) : 0,
+      total: bandTotal,
+      hitRate: bandHitRate,
       hits,
     };
   });
