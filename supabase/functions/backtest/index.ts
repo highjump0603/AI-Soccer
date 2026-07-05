@@ -13,10 +13,11 @@
 //   - POST { league: <league name>, season?: <year>, count?: N } -> backtest
 //     that league/season's most recent finished matches
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
-import { getMatchDetails, getTeamFixtures, type FmMatch } from '../_shared/fotmob.ts';
+import { getFixturesByDate, getMatchDetails, getTeamFixtures, type FmMatch } from '../_shared/fotmob.ts';
 import { getGptPrediction, getBacktestAnalysis } from '../_shared/openai.ts';
 import { gatherPredictionInputs } from '../_shared/predictionInputs.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
+import { TRACKED_LEAGUES } from '../_shared/leagues.ts';
 
 type Supabase = ReturnType<typeof getSupabaseAdmin>;
 
@@ -42,6 +43,45 @@ function normalizeLeagueName(value: string | null | undefined) {
     'worldcup': '월드컵',
   };
   return aliases[normalized] ?? value?.trim() ?? '';
+}
+
+function resolveTrackedLeagueId(league: string | null | undefined) {
+  const normalized = normalizeLeagueName(league);
+  if (!normalized) return null;
+  const match = TRACKED_LEAGUES.find((entry) => normalizeLeagueName(entry.name) === normalized);
+  return match?.id ?? null;
+}
+
+async function collectFotmobMatchesForLeagueSeason(league: string | null | undefined, season: number, count: number): Promise<BacktestTarget[]> {
+  const leagueId = resolveTrackedLeagueId(league);
+  if (!leagueId) return [];
+
+  const startDate = new Date(Date.UTC(season, 7, 1));
+  const endDate = new Date(Date.UTC(season + 1, 5, 30));
+  const candidates: BacktestTarget[] = [];
+  const seen = new Set<number>();
+
+  for (let cursor = new Date(startDate); cursor <= endDate; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const dateStr = `${cursor.getUTCFullYear()}${String(cursor.getUTCMonth() + 1).padStart(2, '0')}${String(cursor.getUTCDate()).padStart(2, '0')}`;
+    const matches = await getFixturesByDate(dateStr);
+    for (const m of matches) {
+      if (m.id && !seen.has(m.id) && (m.primaryLeagueId === leagueId || m.leagueId === leagueId)) {
+        const hasScore = m.home.score != null && m.away.score != null;
+        if (m.status?.finished && hasScore) {
+          seen.add(m.id);
+          candidates.push({
+            ...m,
+            leagueName: league ?? '',
+            status: { ...m.status, finished: true },
+          } as BacktestTarget);
+        }
+      }
+    }
+    if (candidates.length >= count) break;
+  }
+
+  candidates.sort((a, b) => new Date(b.status?.utcTime ?? 0).getTime() - new Date(a.status?.utcTime ?? 0).getTime());
+  return candidates.slice(0, count);
 }
 
 async function backtestOneMatch(supabase: Supabase, m: BacktestTarget) {
@@ -186,37 +226,41 @@ Deno.serve(async (req) => {
         return sameSeason && sameLeague;
       });
 
-      const fallbackFixtures = matchingFixtures.length > 0 ? matchingFixtures : normalizedFixtures.filter((fixture) => {
-        const fixtureLeague = normalizeLeagueName(fixture.league);
-        const sameLeague = !requestedLeague || fixtureLeague === requestedLeague;
-        return sameLeague;
-      });
+      const resolvedFixtures = requestedLeague ? matchingFixtures : normalizedFixtures;
+      const fotmobFallback = resolvedFixtures.length === 0 ? await collectFotmobMatchesForLeagueSeason(body.league, Number(requestedSeason), Number(body.count ?? 5)) : [];
 
-      const resolvedFixtures = requestedLeague ? fallbackFixtures : normalizedFixtures;
+      const combinedTargets = [...resolvedFixtures, ...fotmobFallback].filter((fixture, index, all) => all.findIndex((item) => item.id === fixture.id) === index);
 
-      if (resolvedFixtures.length === 0) {
+      if (combinedTargets.length === 0) {
         return new Response(JSON.stringify({
           ok: true,
           processed: 0,
           results: {},
-          message: `선택한 리그/시즌(${body.league}/${requestedSeason})에 종료된 경기 데이터가 아직 없습니다. 리그 동기화를 다시 실행하거나 다른 시즌을 선택해 주세요.`,
+          message: `선택한 리그/시즌(${body.league}/${requestedSeason})에 종료된 경기 데이터가 아직 없습니다.`,
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      for (const fixture of resolvedFixtures.slice(0, body.count ?? 5)) {
-        if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
-        targets.push({
-          id: fixture.fotmob_id,
-          leagueId: 0,
-          primaryLeagueId: 0,
-          time: '',
-          home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '', score: fixture.home_score_actual ?? null },
-          away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '', score: fixture.away_score_actual ?? null },
-          status: { finished: true, utcTime: fixture.kickoff_at },
-          leagueName: fixture.league ?? (requestedLeague || body.league),
-        } as BacktestTarget);
+      for (const fixture of combinedTargets.slice(0, body.count ?? 5)) {
+        if ('fotmob_id' in fixture) {
+          if (!fixture?.fotmob_id || !fixture.home_team?.name || !fixture.away_team?.name) continue;
+          targets.push({
+            id: fixture.fotmob_id,
+            leagueId: 0,
+            primaryLeagueId: 0,
+            time: '',
+            home: { id: fixture.home_team?.id ?? 0, name: fixture.home_team?.name ?? '', score: fixture.home_score_actual ?? null },
+            away: { id: fixture.away_team?.id ?? 0, name: fixture.away_team?.name ?? '', score: fixture.away_score_actual ?? null },
+            status: { finished: true, utcTime: fixture.kickoff_at },
+            leagueName: fixture.league ?? (requestedLeague || body.league),
+          } as BacktestTarget);
+        } else {
+          targets.push({
+            ...fixture,
+            leagueName: fixture.leagueName ?? (requestedLeague || body.league),
+          } as BacktestTarget);
+        }
       }
     } else {
       return new Response(JSON.stringify({ ok: false, error: 'matchId, teamId, or league is required' }), {
