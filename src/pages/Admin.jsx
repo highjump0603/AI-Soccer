@@ -302,7 +302,7 @@ export default function Admin() {
                     <td style={{ color: r.score_correct ? 'var(--color-success)' : 'var(--fg-3)' }}>
                       {r.score_correct ? '적중' : '—'}
                     </td>
-                    <td style={{ maxWidth: 360, whiteSpace: 'normal', wordBreak: 'break-word' }}>{r.analysis}</td>
+                    <td style={{ maxWidth: 360, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{r.analysis}</td>
                   </tr>
                 ))}
               </tbody>
