@@ -223,7 +223,12 @@ export type FmMatchDetails = {
   header: { teams: (FmTeamRef & { imageUrl?: string })[] };
   content: {
     stats?: { Periods?: { All?: { stats?: { title: string; key: string; stats: FmStatEntry[] }[] } } };
-    lineup?: { homeTeam?: FmTeamLineup; awayTeam?: FmTeamLineup };
+    // `lineupType` is "unavailable" for matches where lineups haven't been
+    // published yet — confirmed live: FotMob still returns homeTeam/awayTeam
+    // objects in that case, just with `formation: ""` and `starters: []`,
+    // not null/undefined. Checking object presence alone isn't enough to
+    // tell "no lineup yet" from "empty lineup" — see getLineups below.
+    lineup?: { lineupType?: string; homeTeam?: FmTeamLineup; awayTeam?: FmTeamLineup };
     h2h?: { summary?: [number, number, number]; matches?: FmH2hMatch[] };
     matchFacts?: { teamForm?: unknown[][]; infoBox?: Record<string, unknown> };
   };
@@ -298,10 +303,17 @@ export function getUnavailablePlayerIds(recentLineups: FmTeamLineup[]): Set<numb
 
 // Null before lineups are officially out (usually within ~1h of kickoff) —
 // callers should treat null as "not published yet", same contract as
-// API-Football's getLineups returning [].
+// API-Football's getLineups returning []. Confirmed live: FotMob still
+// returns non-null homeTeam/awayTeam placeholder objects before the real
+// lineup exists (lineupType: "unavailable", formation: "", starters: []),
+// so object presence alone isn't a reliable signal — also require actual
+// starters to be present.
 export function getLineups(details: FmMatchDetails): { home: FmTeamLineup; away: FmTeamLineup } | null {
-  const { homeTeam, awayTeam } = details.content.lineup ?? {};
+  const lineup = details.content.lineup;
+  const { homeTeam, awayTeam } = lineup ?? {};
   if (!homeTeam || !awayTeam) return null;
+  if (lineup?.lineupType === 'unavailable') return null;
+  if (homeTeam.starters.length === 0 || awayTeam.starters.length === 0) return null;
   return { home: homeTeam, away: awayTeam };
 }
 
