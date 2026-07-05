@@ -9,6 +9,7 @@ import {
   runBacktestForLeagueSeason,
   fetchBacktestResults,
   clearBacktestResults,
+  listBacktestLeagues,
 } from '../lib/fixtures';
 import { confidenceMeta } from '../lib/constants';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
@@ -21,6 +22,7 @@ export default function Admin() {
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState('');
 
+  const [backtestLeagues, setBacktestLeagues] = useState([]);
   const [backtestLeague, setBacktestLeague] = useState('');
   const [backtestSeason, setBacktestSeason] = useState(String(new Date().getUTCFullYear()));
   const [backtestCount, setBacktestCount] = useState(5);
@@ -49,6 +51,9 @@ export default function Admin() {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     loadBacktestResults();
+    listBacktestLeagues()
+      .then(setBacktestLeagues)
+      .catch(() => {});
   }, [loadBacktestResults]);
 
   async function handleRunBacktest() {
@@ -242,12 +247,14 @@ export default function Admin() {
       </div>
 
       <div className="admin-actions admin-actions--backtest" style={{ marginBottom: 'var(--space-5)' }}>
-        <input
-          className="admin-select"
-          value={backtestLeague}
-          onChange={(e) => setBacktestLeague(e.target.value)}
-          placeholder="리그 이름 입력"
-        />
+        <select className="admin-select" value={backtestLeague} onChange={(e) => setBacktestLeague(e.target.value)}>
+          <option value="">리그 선택</option>
+          {backtestLeagues.map((league) => (
+            <option key={league} value={league}>
+              {league}
+            </option>
+          ))}
+        </select>
         <input
           type="number"
           min={1900}

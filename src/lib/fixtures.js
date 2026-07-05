@@ -230,6 +230,12 @@ export async function clearBacktestResults() {
   return data;
 }
 
+export async function listBacktestLeagues() {
+  const { data, error } = await supabase.from('fixtures').select('league').not('league', 'is', null).order('league', { ascending: true });
+  if (error) throw error;
+  return [...new Set((data ?? []).map((row) => row.league).filter(Boolean))];
+}
+
 export async function fetchBacktestResults(limit) {
   let query = supabase
     .from('backtest_results')
