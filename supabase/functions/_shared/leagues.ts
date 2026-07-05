@@ -1,22 +1,21 @@
-// Tracked competitions — API-Football league IDs. These are the widely-
-// documented, stable IDs for the major leagues; the two national-team
-// entries are more likely to need adjusting for your API-Football plan's
-// actual access, since "국가대표" spans many different competitions
-// (friendlies, various confederations' qualifiers, tournaments). Verify
-// against GET /leagues once you have live access — this file couldn't be
-// tested against the live API from the build environment (no outbound
-// network access there).
+// Tracked competitions — FotMob league IDs, confirmed against the live
+// FotMob API (GET /api/data/leagues?id=<id>, checked its `details.name`)
+// during the API-Football -> FotMob migration.
+//
+// "국가대표" (API-Football's generic national-team league id 10, which
+// spanned friendlies/qualifiers/tournaments across many confederations)
+// has no FotMob equivalent — FotMob has no single "internationals" league
+// id the way API-Football did. Scope narrowed to World Cup finals only
+// (id 77) rather than trying to enumerate every qualifying competition.
 //
 // No season field here — sync-leagues discovers fixtures by calendar date
-// (see _shared/apiFootball.ts: getFixturesByDate) rather than by
-// league+season, and just keeps whatever season each returned fixture
-// reports for itself.
+// (see _shared/fotmob.ts: getFixturesByDate) rather than by league+season,
+// and just keeps whatever season each returned fixture reports for itself.
 export const TRACKED_LEAGUES: { id: number; name: string }[] = [
-  { id: 39, name: '프리미어리그' },
-  { id: 140, name: '라리가' },
-  { id: 78, name: '분데스리가' },
-  { id: 135, name: '세리에A' },
-  { id: 292, name: 'K리그1' },
-  { id: 1, name: '월드컵' },
-  { id: 10, name: '국가대표' },
+  { id: 47, name: '프리미어리그' },
+  { id: 87, name: '라리가' },
+  { id: 54, name: '분데스리가' },
+  { id: 55, name: '세리에A' },
+  { id: 9080, name: 'K리그1' },
+  { id: 77, name: '월드컵' },
 ];

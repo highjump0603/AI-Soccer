@@ -13,6 +13,7 @@ import {
   triggerEstimateLineup,
   fetchStandings,
   triggerFetchStandings,
+  fetchMatchStats,
 } from '../lib/fixtures';
 import FormationPitch from '../components/FormationPitch';
 
@@ -92,9 +93,9 @@ export default function MatchDetail() {
   const [standings, setStandings] = useState(null);
   useEffect(() => {
     setStandings(null);
-    if (!match || !match.apiFootballLeagueId) return;
+    if (!match || !match.fotmobLeagueId) return;
     let cancelled = false;
-    const leagueId = match.apiFootballLeagueId;
+    const leagueId = match.fotmobLeagueId;
     fetchStandings(leagueId)
       .then((rows) => {
         if (cancelled) return rows;
@@ -113,10 +114,25 @@ export default function MatchDetail() {
     return () => {
       cancelled = true;
     };
-  }, [match?.apiFootballLeagueId]);
+  }, [match?.fotmobLeagueId]);
 
-  const homeRank = standings?.find((s) => s.team_api_id === match?.home?.apiFootballId)?.rank;
-  const awayRank = standings?.find((s) => s.team_api_id === match?.away?.apiFootballId)?.rank;
+  const homeRank = standings?.find((s) => s.fotmob_team_id === match?.home?.fotmobId)?.rank;
+  const awayRank = standings?.find((s) => s.fotmob_team_id === match?.away?.fotmobId)?.rank;
+
+  const [matchStats, setMatchStats] = useState(null);
+  useEffect(() => {
+    setMatchStats(null);
+    if (!match) return;
+    let cancelled = false;
+    fetchMatchStats(match.id)
+      .then((rows) => {
+        if (!cancelled && rows.length > 0) setMatchStats(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [match?.id]);
 
   return (
     <div className="wrap detail-page">
@@ -142,21 +158,28 @@ export default function MatchDetail() {
                 {match.home.name}
               </span>
             </div>
-            <div className="score" style={{ fontSize: 48 }}>
-              {match.actualScore ? (
-                <>
-                  {match.actualScore.home}
-                  <span className="dash">–</span>
-                  {match.actualScore.away}
-                </>
-              ) : match.hasPrediction ? (
-                <>
-                  {match.score.home}
-                  <span className="dash">–</span>
-                  {match.score.away}
-                </>
-              ) : (
-                <span className="dash">VS</span>
+            <div>
+              <div className="score" style={{ fontSize: 48 }}>
+                {match.actualScore ? (
+                  <>
+                    {match.actualScore.home}
+                    <span className="dash">–</span>
+                    {match.actualScore.away}
+                  </>
+                ) : match.hasPrediction ? (
+                  <>
+                    {match.score.home}
+                    <span className="dash">–</span>
+                    {match.score.away}
+                  </>
+                ) : (
+                  <span className="dash">VS</span>
+                )}
+              </div>
+              {match.actualScore && match.hasPrediction && (
+                <div className="score-predicted-sub">
+                  AI 예측 {match.score.home} – {match.score.away}
+                </div>
               )}
             </div>
             <div className="team">
@@ -331,7 +354,7 @@ export default function MatchDetail() {
                   </thead>
                   <tbody>
                     <tr>
-                      <td>북메이커 평균</td>
+                      <td>1xBet</td>
                       <td>{fmtOdds(match.odds.book.home)}</td>
                       <td>{fmtOdds(match.odds.book.draw)}</td>
                       <td>{fmtOdds(match.odds.book.away)}</td>
@@ -339,6 +362,22 @@ export default function MatchDetail() {
                   </tbody>
                 </table>
               </div>
+              {matchStats && matchStats.length > 0 && (
+                <div className="detail-card">
+                  <div className="detail-block-title">경기 통계</div>
+                  <table className="match-stats-table">
+                    <tbody>
+                      {matchStats.map((s) => (
+                        <tr key={s.stat_key}>
+                          <td className="match-stats-value">{s.home_value}</td>
+                          <td className="match-stats-label">{s.stat_title}</td>
+                          <td className="match-stats-value">{s.away_value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {standings && standings.length > 0 && (
                 <div className="detail-card">
                   <div className="detail-block-title">리그 순위</div>
@@ -358,9 +397,9 @@ export default function MatchDetail() {
                     <tbody>
                       {standings.map((s) => (
                         <tr
-                          key={s.team_api_id}
+                          key={s.fotmob_team_id}
                           className={
-                            s.team_api_id === match.home.apiFootballId || s.team_api_id === match.away.apiFootballId
+                            s.fotmob_team_id === match.home.fotmobId || s.fotmob_team_id === match.away.fotmobId
                               ? 'standings-highlight'
                               : ''
                           }

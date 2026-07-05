@@ -25,15 +25,15 @@ function rowToMatch(row) {
     kickoffAt: row.kickoff_at,
     status: row.status,
     venue: row.venue,
-    home: { id: row.home_team.id, apiFootballId: row.home_team.api_football_id, name: row.home_team.name, logoUrl: row.home_team.logo_url },
-    away: { id: row.away_team.id, apiFootballId: row.away_team.api_football_id, name: row.away_team.name, logoUrl: row.away_team.logo_url },
+    home: { id: row.home_team.id, fotmobId: row.home_team.fotmob_id, name: row.home_team.name, logoUrl: row.home_team.logo_url },
+    away: { id: row.away_team.id, fotmobId: row.away_team.fotmob_id, name: row.away_team.name, logoUrl: row.away_team.logo_url },
     actualScore:
       row.status === 'finished' && row.home_score_actual != null && row.away_score_actual != null
         ? { home: row.home_score_actual, away: row.away_score_actual }
         : null,
     homeFormation: row.home_formation ?? null,
     awayFormation: row.away_formation ?? null,
-    apiFootballLeagueId: row.api_football_league_id ?? null,
+    fotmobLeagueId: row.fotmob_league_id ?? null,
     hasPrediction: !!p,
     generatedAt: p?.generated_at ?? null,
     score: p ? { home: p.final_score_home, away: p.final_score_away } : null,
@@ -59,10 +59,10 @@ function rowToMatch(row) {
 
 const FIXTURE_SELECT = `
   id, league, kickoff_at, status, venue, home_score_actual, away_score_actual,
-  home_formation, away_formation, estimated_lineup_fetched_at, api_football_league_id,
+  home_formation, away_formation, estimated_lineup_fetched_at, fotmob_league_id,
   quick_h2h, quick_h2h_detail, quick_odds_home, quick_odds_draw, quick_odds_away, quick_info_fetched_at,
-  home_team:home_team_id(id, name, logo_url, api_football_id),
-  away_team:away_team_id(id, name, logo_url, api_football_id),
+  home_team:home_team_id(id, name, logo_url, fotmob_id),
+  away_team:away_team_id(id, name, logo_url, fotmob_id),
   predictions(*)
 `;
 
@@ -96,9 +96,21 @@ export async function listRecentFinishedFixtures(limit = 20) {
 export async function fetchLineups(fixtureId) {
   const { data, error } = await supabase
     .from('lineups')
-    .select('team_id, source, shirt_number, grid_row, grid_col, player:player_id(name, position, api_football_id)')
+    .select('team_id, source, shirt_number, grid_row, grid_col, pos_x, pos_y, player:player_id(name, position, fotmob_id)')
     .eq('fixture_id', fixtureId)
     .eq('is_starting', true);
+  if (error) throw error;
+  return data;
+}
+
+// Per-fixture match statistics (xG, shots, possession, ...) from FotMob —
+// only present once a match has started/finished, public-read like
+// everything else the prediction pipeline caches.
+export async function fetchMatchStats(fixtureId) {
+  const { data, error } = await supabase
+    .from('match_stats')
+    .select('stat_key, stat_title, home_value, away_value, stat_type')
+    .eq('fixture_id', fixtureId);
   if (error) throw error;
   return data;
 }
@@ -165,11 +177,11 @@ export async function triggerEstimateLineup(fixtureId) {
 // League table for one competition, cached in `league_standings`. Public
 // read, so once fetched (see triggerFetchStandings) the client can query it
 // directly.
-export async function fetchStandings(apiFootballLeagueId) {
+export async function fetchStandings(fotmobLeagueId) {
   const { data, error } = await supabase
     .from('league_standings')
-    .select('team_api_id, team_name, team_logo_url, rank, played, win, draw, lose, goals_for, goals_against, points, form')
-    .eq('api_football_league_id', apiFootballLeagueId)
+    .select('fotmob_team_id, team_name, team_logo_url, rank, played, win, draw, lose, goals_for, goals_against, points, form')
+    .eq('fotmob_league_id', fotmobLeagueId)
     .order('rank', { ascending: true });
   if (error) throw error;
   return data;
@@ -178,8 +190,8 @@ export async function fetchStandings(apiFootballLeagueId) {
 // Refreshes the cached league table server-side if it's stale (see
 // fetch-standings for the TTL) — callers should re-run fetchStandings()
 // afterward to pick up any new rows.
-export async function triggerFetchStandings(apiFootballLeagueId) {
-  const { data, error } = await supabase.functions.invoke('fetch-standings', { body: { api_football_league_id: apiFootballLeagueId } });
+export async function triggerFetchStandings(fotmobLeagueId) {
+  const { data, error } = await supabase.functions.invoke('fetch-standings', { body: { fotmob_league_id: fotmobLeagueId } });
   if (error) throw error;
   return data;
 }

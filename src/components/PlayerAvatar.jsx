@@ -8,7 +8,7 @@ function initialsOf(name) {
 
 export default function PlayerAvatar({ player, number }) {
   const [imgError, setImgError] = useState(false);
-  const url = player.api_football_id ? `https://media.api-sports.io/football/players/${player.api_football_id}.png` : null;
+  const url = player.fotmob_id ? `https://images.fotmob.com/image_resources/playerimages/${player.fotmob_id}.png` : null;
 
   return (
     <div className="player-avatar">

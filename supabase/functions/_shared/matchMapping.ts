@@ -1,40 +1,66 @@
-import type { AfFixture, AfLineup } from './apiFootball.ts';
 import type { RecentResult } from './poisson.ts';
+import type { FmMatch, FmTeamLineup, FmH2hMatch } from './fotmob.ts';
+import { parseScoreStr } from './fotmob.ts';
 
-const FINISHED_STATUSES = new Set(['FT', 'AET', 'PEN']);
-
-export function mapRecentResults(afFixtures: AfFixture[], teamApiId: number): RecentResult[] {
-  return afFixtures
-    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
-    .map((f) => {
-      const isHome = f.teams.home.id === teamApiId;
-      const goalsFor = (isHome ? f.goals.home : f.goals.away) ?? 0;
-      const goalsAgainst = (isHome ? f.goals.away : f.goals.home) ?? 0;
+export function mapRecentResultsFm(fmMatches: FmMatch[], teamId: number): RecentResult[] {
+  return fmMatches
+    .filter((m) => m.status?.finished)
+    .map((m) => {
+      const isHome = m.home.id === teamId;
+      const goalsFor = (isHome ? m.home.score : m.away.score) ?? 0;
+      const goalsAgainst = (isHome ? m.away.score : m.home.score) ?? 0;
       return { venue: isHome ? 'home' : 'away', goals_for: goalsFor, goals_against: goalsAgainst } as RecentResult;
     });
 }
 
-export function alignH2hForModel(h2hAf: AfFixture[], currentHomeApiId: number) {
-  return h2hAf
-    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
-    .map((f) => {
-      const currentHomeWasHome = f.teams.home.id === currentHomeApiId;
-      const homeGoals = (currentHomeWasHome ? f.goals.home : f.goals.away) ?? 0;
-      const awayGoals = (currentHomeWasHome ? f.goals.away : f.goals.home) ?? 0;
-      return { homeGoals, awayGoals };
-    });
+// Attaches real xG onto RecentResults wherever we happen to already have it
+// cached in match_stats for that past match (only true for fixtures we've
+// personally tracked/predicted before — an opponent's match against some
+// third club we never tracked has no cached stats, and this is a
+// best-effort enhancement, not a requirement — see poisson.ts's comment on
+// RecentResult.xg_for/xg_against). `xgByFotmobMatchId` maps a FotMob match
+// id to its {home, away} expected-goals figures.
+export function attachXgFm(
+  results: RecentResult[],
+  fmMatches: FmMatch[],
+  teamId: number,
+  xgByFotmobMatchId: Map<number, { home: number; away: number }>
+): RecentResult[] {
+  const finished = fmMatches.filter((m) => m.status?.finished);
+  return results.map((r, i) => {
+    const m = finished[i];
+    if (!m) return r;
+    const xg = xgByFotmobMatchId.get(m.id);
+    if (!xg) return r;
+    const isHome = m.home.id === teamId;
+    return { ...r, xg_for: isHome ? xg.home : xg.away, xg_against: isHome ? xg.away : xg.home };
+  });
+}
+
+function h2hFinished(h2h: FmH2hMatch[]) {
+  return h2h.filter((m) => m.status?.finished && parseScoreStr(m.status?.scoreStr) !== null);
+}
+
+export function alignH2hForModelFm(h2h: FmH2hMatch[], currentHomeName: string) {
+  return h2hFinished(h2h).map((m) => {
+    const currentHomeWasHome = normalizeTeamName(m.home.name) === normalizeTeamName(currentHomeName);
+    const parsed = parseScoreStr(m.status?.scoreStr)!;
+    const homeGoals = currentHomeWasHome ? parsed.home : parsed.away;
+    const awayGoals = currentHomeWasHome ? parsed.away : parsed.home;
+    return { homeGoals, awayGoals };
+  });
 }
 
 // W/D/L from the current fixture's home team's perspective, most recent first.
-export function h2hResultLetters(h2hAf: AfFixture[], currentHomeApiId: number): string[] {
-  const sorted = [...h2hAf]
-    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
-    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime());
-
-  return sorted.map((f) => {
-    const currentHomeWasHome = f.teams.home.id === currentHomeApiId;
-    const goalsFor = (currentHomeWasHome ? f.goals.home : f.goals.away) ?? 0;
-    const goalsAgainst = (currentHomeWasHome ? f.goals.away : f.goals.home) ?? 0;
+export function h2hResultLettersFm(h2h: FmH2hMatch[], currentHomeName: string): string[] {
+  const sorted = [...h2hFinished(h2h)].sort(
+    (a, b) => new Date(b.time?.utcTime ?? 0).getTime() - new Date(a.time?.utcTime ?? 0).getTime()
+  );
+  return sorted.map((m) => {
+    const currentHomeWasHome = normalizeTeamName(m.home.name) === normalizeTeamName(currentHomeName);
+    const parsed = parseScoreStr(m.status?.scoreStr)!;
+    const goalsFor = currentHomeWasHome ? parsed.home : parsed.away;
+    const goalsAgainst = currentHomeWasHome ? parsed.away : parsed.home;
     if (goalsFor > goalsAgainst) return 'W';
     if (goalsFor < goalsAgainst) return 'L';
     return 'D';
@@ -51,21 +77,27 @@ export type H2hDetailRow = {
 };
 
 // Full past-meeting rows (date/competition/score) for display, most recent
-// first — h2hResultLetters above throws away everything but W/D/L, which is
-// all the model needs but not enough to show an actual match list.
-export function h2hDetailRows(h2hAf: AfFixture[], count = 5): H2hDetailRow[] {
-  return [...h2hAf]
-    .filter((f) => FINISHED_STATUSES.has(f.fixture.status.short))
-    .sort((a, b) => new Date(b.fixture.date).getTime() - new Date(a.fixture.date).getTime())
+// first — h2hResultLettersFm above throws away everything but W/D/L, which
+// is all the model needs but not enough to show an actual match list.
+export function h2hDetailRowsFm(h2h: FmH2hMatch[], count = 5): H2hDetailRow[] {
+  return [...h2hFinished(h2h)]
+    .sort((a, b) => new Date(b.time?.utcTime ?? 0).getTime() - new Date(a.time?.utcTime ?? 0).getTime())
     .slice(0, count)
-    .map((f) => ({
-      date: f.fixture.date,
-      league: f.league.name,
-      homeTeam: f.teams.home.name,
-      awayTeam: f.teams.away.name,
-      homeGoals: f.goals.home ?? 0,
-      awayGoals: f.goals.away ?? 0,
-    }));
+    .map((m) => {
+      const parsed = parseScoreStr(m.status?.scoreStr)!;
+      return {
+        date: m.time?.utcTime ?? '',
+        league: m.league?.name ?? '',
+        homeTeam: m.home.name,
+        awayTeam: m.away.name,
+        homeGoals: parsed.home,
+        awayGoals: parsed.away,
+      };
+    });
+}
+
+function normalizeTeamName(name: string) {
+  return name.toLowerCase().trim();
 }
 
 export function formSummaryText(recent: RecentResult[], teamName: string): string {
@@ -78,35 +110,31 @@ export function formSummaryText(recent: RecentResult[], teamName: string): strin
   return `${teamName}: 최근 ${recent.length}경기 ${wins}승 ${draws}무 ${losses}패, 평균 득점 ${avgFor}골, 평균 실점 ${avgAgainst}골`;
 }
 
-export function lineupSummaryText(lineup: AfLineup | undefined, teamName: string): string {
+export function lineupSummaryTextFm(lineup: FmTeamLineup | undefined, teamName: string): string {
   if (!lineup) return `${teamName}: 공식 라인업 미발표`;
-  const names = lineup.startXI.map((s) => s.player.name).join(', ');
+  const names = lineup.starters.map((s) => s.name).join(', ');
   return `${teamName} 예상 포메이션 ${lineup.formation ?? '?'}: ${names}`;
 }
 
 // Which current-fixture starters (either side) also started or subbed in the
 // most recent meeting between these two clubs — the closest honest proxy we
 // have for "선수 개인 맞대결 이력" without a dedicated player-vs-player stats feed.
-export function computePlayerMeetingNotes(
-  currentLineups: AfLineup[],
-  lastH2hLineups: AfLineup[],
+export function computePlayerMeetingNotesFm(
+  currentLineups: FmTeamLineup[],
+  lastH2hLineups: FmTeamLineup[],
   lastH2hDate: string,
   lastH2hResultLabel: string
 ) {
   const pastPlayerIds = new Set<number>();
   for (const team of lastH2hLineups) {
-    for (const p of [...team.startXI, ...(team.substitutes ?? [])]) pastPlayerIds.add(p.player.id);
+    for (const p of [...team.starters, ...(team.subs ?? [])]) pastPlayerIds.add(p.id);
   }
 
   const notes: { player: string; team: string; meetings: { date: string; result: string }[] }[] = [];
   for (const team of currentLineups) {
-    for (const s of team.startXI) {
-      if (pastPlayerIds.has(s.player.id)) {
-        notes.push({
-          player: s.player.name,
-          team: team.team.name,
-          meetings: [{ date: lastH2hDate, result: lastH2hResultLabel }],
-        });
+    for (const s of team.starters) {
+      if (pastPlayerIds.has(s.id)) {
+        notes.push({ player: s.name, team: team.name, meetings: [{ date: lastH2hDate, result: lastH2hResultLabel }] });
       }
     }
   }
@@ -116,17 +144,17 @@ export function computePlayerMeetingNotes(
 // 0 (no overlap data / squads fully turned over) to 1 (same core group of
 // players as last time these two teams met) — used to scale how much the
 // model should lean on H2H history.
-export function computeLineupOverlapRatio(currentLineups: AfLineup[], lastH2hLineups: AfLineup[]) {
+export function computeLineupOverlapRatioFm(currentLineups: FmTeamLineup[], lastH2hLineups: FmTeamLineup[]) {
   if (currentLineups.length === 0 || lastH2hLineups.length === 0) return null;
   const pastIds = new Set<number>();
-  for (const team of lastH2hLineups) for (const p of team.startXI) pastIds.add(p.player.id);
+  for (const team of lastH2hLineups) for (const p of team.starters) pastIds.add(p.id);
 
   let totalStarters = 0;
   let overlap = 0;
   for (const team of currentLineups) {
-    for (const s of team.startXI) {
+    for (const s of team.starters) {
       totalStarters += 1;
-      if (pastIds.has(s.player.id)) overlap += 1;
+      if (pastIds.has(s.id)) overlap += 1;
     }
   }
   if (totalStarters === 0) return null;
@@ -135,11 +163,13 @@ export function computeLineupOverlapRatio(currentLineups: AfLineup[], lastH2hLin
 
 type PosGroup = 'G' | 'D' | 'M' | 'F';
 
-function posGroup(pos?: string): PosGroup {
-  const p = (pos ?? '').toUpperCase();
-  if (p.startsWith('G')) return 'G';
-  if (p.startsWith('D')) return 'D';
-  if (p.startsWith('F')) return 'F';
+// 0=GK, 1=DF, 2=MF, 3=FW — confirmed against real FotMob lineup payloads.
+// `positionId` (not used here) encodes the specific formation slot instead
+// and varies per formation, so it's not safe for position-group bucketing.
+function posGroupFm(usualPlayingPositionId?: number): PosGroup {
+  if (usualPlayingPositionId === 0) return 'G';
+  if (usualPlayingPositionId === 1) return 'D';
+  if (usualPlayingPositionId === 3) return 'F';
   return 'M';
 }
 
@@ -152,8 +182,12 @@ export type EstimatedLineup = {
 // Best guess at a team's starting XI + formation before the club announces
 // one: most-used player per position group across its last few actual
 // lineups, skipping anyone currently injured/suspended. No per-player
-// rating data involved — pure "who's been playing lately".
-export function estimateLineup(recentLineups: AfLineup[], unavailableIds: Set<number>): EstimatedLineup | null {
+// rating data involved — pure "who's been playing lately". Kept on the
+// existing grid_row/grid_col-oriented output shape (position group as row,
+// most-common ordering as column) rather than switching FormationPitch.jsx
+// over to raw x/y coordinates — de-risks the FotMob cutover; a
+// coordinate-based renderer can be a follow-up if desired.
+export function estimateLineupFm(recentLineups: FmTeamLineup[], unavailableIds: Set<number>): EstimatedLineup | null {
   if (recentLineups.length === 0) return null;
 
   const formationCounts = new Map<string, number>();
@@ -175,15 +209,16 @@ export function estimateLineup(recentLineups: AfLineup[], unavailableIds: Set<nu
   type Stat = { name: string; number?: number; group: PosGroup; count: number; lastSeen: number };
   const stats = new Map<number, Stat>();
   recentLineups.forEach((l, idx) => {
-    for (const s of l.startXI) {
-      if (unavailableIds.has(s.player.id)) continue;
+    for (const s of l.starters) {
+      if (unavailableIds.has(s.id)) continue;
       const recency = recentLineups.length - idx;
-      const existing = stats.get(s.player.id);
+      const existing = stats.get(s.id);
+      const shirtNumber = s.shirtNumber != null ? Number(s.shirtNumber) : undefined;
       if (existing) {
         existing.count += 1;
         existing.lastSeen = Math.max(existing.lastSeen, recency);
       } else {
-        stats.set(s.player.id, { name: s.player.name, number: s.player.number, group: posGroup(s.player.pos), count: 1, lastSeen: recency });
+        stats.set(s.id, { name: s.name, number: shirtNumber, group: posGroupFm(s.usualPlayingPositionId), count: 1, lastSeen: recency });
       }
     }
   });

@@ -1,11 +1,12 @@
 // Builds a best-guess starting XI + formation for a fixture before
-// API-Football's own official lineup is out — from each team's last few
-// actual lineups plus current injury/suspension info. Called from the
+// FotMob's own official lineup is out — from each team's last few actual
+// lineups plus current injury/suspension info (taken from whichever of
+// those recent lineups carries an `unavailable` list). Called from the
 // client when a viewer opens a match detail page that has no official
 // lineup yet, same on-demand-with-caching pattern as quick-match-info.
 import { getSupabaseAdmin } from '../_shared/supabaseAdmin.ts';
-import { getTeamLastLineups, getUnavailablePlayerIds } from '../_shared/apiFootball.ts';
-import { estimateLineup } from '../_shared/matchMapping.ts';
+import { getTeamLastLineups, getUnavailablePlayerIds } from '../_shared/fotmob.ts';
+import { estimateLineupFm } from '../_shared/matchMapping.ts';
 import { corsHeaders, handleCors } from '../_shared/cors.ts';
 
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -14,8 +15,8 @@ type FixtureRow = {
   id: number;
   status: string;
   estimated_lineup_fetched_at: string | null;
-  home_team: { id: number; api_football_id: number };
-  away_team: { id: number; api_football_id: number };
+  home_team: { id: number; fotmob_id: number };
+  away_team: { id: number; fotmob_id: number };
 };
 
 Deno.serve(async (req) => {
@@ -39,9 +40,7 @@ Deno.serve(async (req) => {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('fixtures')
-    .select(
-      'id, status, estimated_lineup_fetched_at, home_team:home_team_id(id, api_football_id), away_team:away_team_id(id, api_football_id)'
-    )
+    .select('id, status, estimated_lineup_fetched_at, home_team:home_team_id(id, fotmob_id), away_team:away_team_id(id, fotmob_id)')
     .eq('id', fixtureId)
     .single();
   if (error) {
@@ -79,18 +78,16 @@ Deno.serve(async (req) => {
   }
 
   const sides = [
-    { side: 'home' as const, teamRowId: fixture.home_team.id, teamApiId: fixture.home_team.api_football_id },
-    { side: 'away' as const, teamRowId: fixture.away_team.id, teamApiId: fixture.away_team.api_football_id },
+    { side: 'home' as const, teamRowId: fixture.home_team.id, teamFotmobId: fixture.home_team.fotmob_id },
+    { side: 'away' as const, teamRowId: fixture.away_team.id, teamFotmobId: fixture.away_team.fotmob_id },
   ];
 
   const formations: { home: string | null; away: string | null } = { home: null, away: null };
 
-  for (const { side, teamRowId, teamApiId } of sides) {
-    const [recentLineups, unavailable] = await Promise.all([
-      getTeamLastLineups(teamApiId, 3).catch(() => []),
-      getUnavailablePlayerIds(teamApiId).catch(() => new Set<number>()),
-    ]);
-    const estimate = estimateLineup(recentLineups, unavailable);
+  for (const { side, teamRowId, teamFotmobId } of sides) {
+    const recentLineups = await getTeamLastLineups(teamFotmobId, 3).catch(() => []);
+    const unavailable = getUnavailablePlayerIds(recentLineups);
+    const estimate = estimateLineupFm(recentLineups, unavailable);
     if (!estimate) continue;
     formations[side] = estimate.formation;
 
@@ -105,7 +102,7 @@ Deno.serve(async (req) => {
         gridCol += 1;
         const { data: playerRow, error: playerErr } = await supabase
           .from('players')
-          .upsert({ api_football_id: p.id, name: p.name, team_id: teamRowId, position: p.group }, { onConflict: 'api_football_id' })
+          .upsert({ fotmob_id: p.id, name: p.name, team_id: teamRowId, position: p.group }, { onConflict: 'fotmob_id' })
           .select('id')
           .single();
         if (playerErr) continue;

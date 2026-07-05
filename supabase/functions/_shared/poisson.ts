@@ -6,7 +6,16 @@
 // Home-goals x Away-goals probability grid, which is then summed into
 // win/draw/win probabilities and the single most likely scoreline.
 
-export type RecentResult = { venue: 'home' | 'away'; goals_for: number; goals_against: number };
+// xg_for/xg_against are optional real xG figures for a past match (from
+// FotMob's match-stats feed, see _shared/fotmob.ts's getMatchStats) — when
+// present, averageGoalsFor/averageGoalsAgainst prefer them over the raw
+// goals_for/against, since actual quality-of-chances is a less noisy
+// predictor of future scoring than the noisy actual goal count from a
+// single match. Not every past match will have xG available (very recent
+// matches not yet stats-enriched, or competitions FotMob doesn't track
+// stats for), so this is a best-effort enhancement, not a requirement —
+// goals_for/against remain the fallback.
+export type RecentResult = { venue: 'home' | 'away'; goals_for: number; goals_against: number; xg_for?: number; xg_against?: number };
 
 // Baseline used when a team has no cached recent results yet (newly
 // tracked club) so the model degrades to "average team" instead of NaN.
@@ -26,7 +35,7 @@ export function averageGoalsFor(results: RecentResult[], venue: 'home' | 'away')
   const venueResults = splitByVenue(results, venue);
   const source = venueResults.length >= 3 ? venueResults : results;
   return average(
-    source.map((r) => r.goals_for),
+    source.map((r) => r.xg_for ?? r.goals_for),
     FALLBACK_GOALS_FOR[venue]
   );
 }
@@ -35,7 +44,7 @@ export function averageGoalsAgainst(results: RecentResult[], venue: 'home' | 'aw
   const venueResults = splitByVenue(results, venue);
   const source = venueResults.length >= 3 ? venueResults : results;
   return average(
-    source.map((r) => r.goals_against),
+    source.map((r) => r.xg_against ?? r.goals_against),
     FALLBACK_GOALS_AGAINST[venue]
   );
 }
